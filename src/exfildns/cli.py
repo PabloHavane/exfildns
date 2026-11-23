@@ -1,6 +1,8 @@
 """Point d'entrée en ligne de commande : `exfildns <commande>`."""
 
 import argparse
+import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -60,9 +62,9 @@ def commande_evaluate(args) -> int:
 
 
 def domaine_parent(qname: str, tronque: bool) -> str:
-    """Deux derniers labels du nom (`exemple.com`), ou un marqueur si le nom est coupé."""
+    """Deux derniers labels du nom (`exemple.com`), ou un marqueur si la question est coupée."""
     if tronque:
-        return "(nom tronqué dans la capture)"
+        return "(nom incomplet dans la capture)"
     return ".".join(qname.split(".")[-2:]) or "(racine)"
 
 
@@ -71,6 +73,11 @@ def commande_scan(args) -> int:
     if requetes.empty:
         print(f"Aucune requête DNS dans {args.capture}.")
         return 0
+    if not Path(args.modele).exists():
+        print(
+            f"Modèle introuvable : {args.modele} (lancer d'abord exfildns train).", file=sys.stderr
+        )
+        return 2
     modele = charger(args.modele)
     requetes["score"] = predire_proba(modele, features_dataframe(requetes["qname"]))
     suspectes = requetes[requetes["score"] >= args.seuil].sort_values("score", ascending=False)
