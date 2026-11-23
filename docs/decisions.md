@@ -50,3 +50,11 @@ Plutôt que le tirage aléatoire 70/30 de l'article : les requêtes d'une même 
 Le test (~24 % des requêtes) ne couvre donc qu'un type de fichier exfiltré (vidéo) : les autres
 types servent à l'entraînement. Modèle de référence : régression logistique standardisée,
 `class_weight="balanced"` ; 0 erreur sur les 70 159 requêtes de test.
+
+## 2026-11-23 — Réseau de neurones : Normalization → Dense 32 → Dense 16 → sortie sigmoïde
+Style du TP Spam (Sequential, ReLU, adam, binary_crossentropy), sans Embedding puisque l'entrée
+est un vecteur de 9 features numériques. La couche `Normalization` (adaptée sur le train) est
+enregistrée dans le `.keras` : l'inférence applique la même mise à l'échelle. 20 % du train sert
+de validation ; `EarlyStopping(patience=3, restore_best_weights=True)` automatise le choix
+« époque de val_loss minimale » du cours. 865 paramètres entraînables, ~6 s d'entraînement,
+1 erreur sur les 70 159 requêtes de test.
