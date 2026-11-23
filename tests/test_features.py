@@ -49,6 +49,8 @@ def test_point_final_ignore():
 def test_nom_vide():
     f = extract_features("")
     assert all(v == 0 for v in f.values())
+    assert extract_features(".") == f
+    assert extract_features("a..b")["labels"] == 2
 
 
 def test_entropie():
