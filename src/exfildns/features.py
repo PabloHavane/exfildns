@@ -14,9 +14,9 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-# Les paquets du dataset sont tronqués : les noms d'exfiltration n'y dépassent pas
-# 41 caractères. On coupe tous les noms à cette longueur, à l'entraînement comme à
-# l'inférence, pour que le modèle n'apprenne pas la troncature (docs/donnees.md).
+# Les paquets du dataset sont tronqués : les noms d'exfiltration y font au plus
+# 41 caractères. On coupe tous les noms un peu en dessous (40), à l'entraînement comme
+# à l'inférence, pour que tous les noms longs soient traités pareil (docs/donnees.md).
 LONGUEUR_MAX = 40
 
 FEATURES = [
@@ -24,7 +24,7 @@ FEATURES = [
     "upper",  # nombre de majuscules
     "lower",  # nombre de minuscules
     "numeric",  # nombre de chiffres
-    "special",  # nombre d'autres caractères (points, tirets, _ …)
+    "special",  # nombre d'autres caractères (points, tirets, _, non ASCII …)
     "entropy",  # entropie de Shannon des caractères, en bits
     "labels",  # nombre de labels (parties séparées par des points)
     "labels_max",  # longueur du plus long label
