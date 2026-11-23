@@ -79,6 +79,9 @@ Fixer les graines aléatoires (`keras.utils.set_random_seed`) pour des résultat
 - `main` : branche d'intégration, **protégée** (merge uniquement par PR avec CI verte).
 - `production` : version livrée, **protégée**. Seule `main` peut y être mergée (check CI
   `source-production`), par PR en **merge** ou **rebase**, jamais en squash (skill `livrer-production`).
+- Titre d'issue préfixé par son numéro : `[#9] Extraire les requêtes DNS d'un fichier PCAP`.
+  Le numéro n'est connu qu'après création : créer l'issue, puis
+  `gh issue edit <n°> --title "[#<n°>] <titre>"`.
 - Une branche par issue, créée depuis `main` à jour :
   `feat/<n°>-<description>`, `fix/<n°>-…`, `docs/<n°>-…`, `test/<n°>-…`, `chore/<n°>-…`, `refactor/<n°>-…`
   (en kebab-case, ex. `feat/4-features-stateless`).
