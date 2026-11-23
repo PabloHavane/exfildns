@@ -1,7 +1,9 @@
+import numpy as np
+import pandas as pd
 import pytest
 from conftest import jeu_synthetique
 
-from exfildns.evaluation import evaluer, evaluer_predictions
+from exfildns.evaluation import evaluer, evaluer_predictions, importance_permutation
 from exfildns.features import FEATURES
 from exfildns.model import entrainer_reference
 
@@ -33,3 +35,17 @@ def test_evaluer_un_modele():
     m = evaluer(modele, df[FEATURES], df.label)
     assert m["rappel"] > 0.9
     assert m["vrais_positifs"] + m["faux_negatifs"] == df.label.sum()
+
+
+def test_importance_permutation_classe_la_feature_informative_en_tete():
+    rng = np.random.default_rng(0)
+    y = np.arange(400) % 2
+    X = pd.DataFrame(rng.normal(size=(400, len(FEATURES))), columns=FEATURES)
+    X["entropy"] += 4 * y  # seule feature liée à l'étiquette
+    modele = entrainer_reference(X, y)
+
+    importance = importance_permutation(modele, X, y)
+
+    assert importance.index[0] == "entropy"
+    assert importance["entropy"] > 10 * importance.drop("entropy").abs().max()
+    assert list(importance.sort_index().index) == sorted(FEATURES)
