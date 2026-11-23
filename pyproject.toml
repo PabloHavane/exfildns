@@ -1,6 +1,6 @@
 [project]
 name = "exfildns"
-version = "0.1.0"
+version = "1.0.0"
 description = "Détection par machine learning des requêtes DNS servant à l'exfiltration de données"
 readme = "README.md"
 license = "Apache-2.0"
