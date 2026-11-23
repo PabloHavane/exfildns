@@ -21,7 +21,8 @@ git switch -c <type>/<n°>-<description-courte>
 
 ## 2. Implémenter (KISS)
 
-- Faire **uniquement** ce que demande l'issue. Une idée en plus = une nouvelle issue (`gh issue create`).
+- Faire **uniquement** ce que demande l'issue. Une idée en plus = une nouvelle issue (`gh issue create`),
+  puis préfixer son titre par son numéro : `gh issue edit <n°> --title "[#<n°>] <titre>"`.
 - Écrire ou compléter les tests dans `tests/test_<module>.py`, avec des données synthétiques minuscules.
 - Respecter `CLAUDE.md` : français, même fonction de features à l'entraînement et à l'inférence,
   aucune donnée ni modèle commité.
