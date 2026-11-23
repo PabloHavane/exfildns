@@ -17,7 +17,8 @@ def test_metriques_sur_predictions_connues():
     assert m["rappel"] == pytest.approx(3 / 4)
     assert m["precision"] == pytest.approx(3 / 4)
     assert m["taux_faux_positifs"] == pytest.approx(1 / 4)
-    assert 0 < m["pr_auc"] <= 1
+    assert m["f1"] == pytest.approx(0.75)
+    assert m["pr_auc"] == pytest.approx(0.95)
 
 
 def test_seuil():
