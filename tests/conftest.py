@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.inet import IP, UDP
 from scapy.layers.l2 import Ether
@@ -38,3 +39,40 @@ def jeu_synthetique(n=400, graine=0):
     df["label"] = y
     df["capture"] = np.where(np.arange(n) < n * 3 // 4, "train", "test")
     return df
+
+
+MOTS = ["google", "wikipedia", "meteo", "boutique", "news", "mail", "cdn", "photos", "bank", "shop"]
+TLDS = ["com", "fr", "org", "net", "co.jp", "de"]
+BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+def noms_benins(n, graine=0):
+    """Noms de domaine courts et lisibles, comme ceux du top Alexa."""
+    rng = np.random.default_rng(graine)
+    return [
+        f"{'www.' if i % 3 == 0 else ''}{rng.choice(MOTS)}{rng.choice(MOTS)}.{rng.choice(TLDS)}"
+        for i in range(n)
+    ]
+
+
+def noms_exfil(n, graine=0):
+    """Requêtes façon DNSExfiltrator : numéro de morceau, données base64, domaine de l'attaquant."""
+    rng = np.random.default_rng(graine)
+    return [f"{i}.{''.join(rng.choice(list(BASE64URL), 50))}.attaquant.example" for i in range(n)]
+
+
+@pytest.fixture
+def dossier_donnees(tmp_path):
+    """Mini-dataset de PCAP aux noms des vraies captures (dont celles du test, CAPTURES_TEST)."""
+    dossier = tmp_path / "data"
+    (dossier / "Attacks").mkdir(parents=True)
+    (dossier / "Benign").mkdir()
+    for graine, nom in enumerate(["heavy_audio", "heavy_video"]):
+        paquets = [requete(q, dst="192.168.20.72") for q in noms_exfil(60, graine)]
+        paquets += [requete(q) for q in noms_benins(10, graine + 10)]  # trafic de fond
+        # snaplen=96 : paquets coupés comme dans le vrai dataset (docs/donnees.md)
+        ecrire_pcap(dossier / "Attacks" / f"{nom}.pcap", paquets, snaplen=96)
+    for graine, nom in enumerate(["benign_heavy_1", "benign_heavy_3"]):
+        paquets = [requete(q) for q in noms_benins(60, graine + 20)]
+        ecrire_pcap(dossier / "Benign" / f"{nom}.pcap", paquets)
+    return dossier
