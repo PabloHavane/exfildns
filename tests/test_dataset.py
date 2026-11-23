@@ -57,6 +57,27 @@ def test_cache_reutilise(dossier):
     assert second.equals(premier)
 
 
+def test_nom_vide_conserve_par_le_cache(tmp_path):
+    (tmp_path / "Benign").mkdir()
+    ecrire_pcap(tmp_path / "Benign" / "123.pcap", [requete("."), requete("NA")])
+
+    premier = load_dataset(tmp_path)
+    second = load_dataset(tmp_path)
+
+    assert second.qname.tolist() == ["", "NA"]
+    assert second.capture.tolist() == ["123", "123"]
+    assert second.equals(premier)
+
+
 def test_dossier_sans_pcap(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_dataset(tmp_path, cache=False)
+
+
+def test_pcap_sans_requete_dns(tmp_path):
+    (tmp_path / "Benign").mkdir()
+    ecrire_pcap(tmp_path / "Benign" / "vide.pcap", [])
+
+    with pytest.raises(ValueError):
+        load_dataset(tmp_path)
+    assert not (tmp_path / NOM_CACHE).exists()
