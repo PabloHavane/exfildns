@@ -19,7 +19,7 @@ def test_version(capsys):
 def test_train_puis_evaluate(dossier_donnees, tmp_path, capsys):
     modele = tmp_path / "modeles" / "exfildns.keras"
 
-    assert main(["train", str(dossier_donnees), "-o", str(modele), "--epochs", "20"]) == 0
+    assert main(["train", str(dossier_donnees), "-o", str(modele), "--epochs", "50"]) == 0
     sortie = capsys.readouterr().out
     assert modele.exists()
     assert "rappel" in sortie
