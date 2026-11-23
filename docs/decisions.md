@@ -27,3 +27,13 @@ d'apprendre la troncature au lieu de l'exfiltration.
 ## 2026-11-23 — Lecture du nom de domaine dans les octets bruts
 scapy ne décode pas les requêtes DNS tronquées. scapy reste utilisé pour lire les fichiers
 (pcap et pcapng), mais le nom de domaine est lu directement dans la charge UDP par une petite fonction.
+
+## 2026-11-23 — 9 features stateless sur 14, calculées sur les seuls caractères du nom
+Gardées : `FQDN_count`, `upper`, `lower`, `numeric`, `special`, `entropy`, `labels`, `labels_max`,
+`labels_average` (noms de l'article). Écartées : `sld`, `subdomain`, `subdomain_length`, `len`,
+qui supposent de connaître le suffixe public (`.com`, `.co.uk`…), jamais visible dans les noms
+d'exfiltration tronqués ; `longest_word`, qui demande un dictionnaire. L'entropie est l'entropie
+de Shannon du nom entier (tronqué) : elle diffère de celle des CSV du dataset (3,51 contre 2,56 sur
+`10.1.168.192.in-addr.arpa`), ce qui est sans effet puisque ces CSV ne sont pas utilisés.
+Limite : la longueur est très discriminante (100 % des noms d'exfiltration atteignent 40 caractères,
+0,05 % des bénins) ; un vrai réseau a plus de noms bénins longs (CDN, cloud) que le top Alexa.
