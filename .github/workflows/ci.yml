@@ -22,3 +22,17 @@ jobs:
         run: uv run ruff format --check .
       - name: Tests
         run: uv run pytest -q
+
+  # Seule la branche main peut être mergée vers production (check obligatoire sur production).
+  source-production:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier la branche source
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          if [ "$BASE" = "production" ] && [ "$HEAD" != "main" ]; then
+            echo "Seule main peut être mergée vers production (source : $HEAD)."
+            exit 1
+          fi
