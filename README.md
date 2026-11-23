@@ -64,6 +64,9 @@ captures mises de côté pour le test (par défaut `heavy_video benign_heavy_3`)
 uv run exfildns evaluate       # métriques de models/exfildns.keras sur le jeu de test
 ```
 
+`train` et `evaluate` prennent en argument le dossier de données (`data` par défaut) ;
+`evaluate` accepte `-m` pour choisir le modèle.
+
 ### Analyser une capture
 
 ```bash
@@ -85,8 +88,13 @@ Requêtes suspectes (3 plus probables) :
 ```
 
 Code de sortie : **0** si rien n'est suspect, **1** si au moins une requête est suspecte,
-**2** si le modèle est introuvable. Utilisable dans un script :
-`uv run exfildns scan capture.pcap > rapport.txt || echo "Exfiltration suspectée"`.
+**2** si le modèle est introuvable (une autre erreur, comme une capture introuvable, renvoie
+aussi 1 avec un message d'erreur). Dans un script :
+
+```bash
+uv run exfildns scan capture.pcap > rapport.txt
+[ $? -eq 1 ] && grep -q suspectes rapport.txt && echo "Exfiltration suspectée"
+```
 
 ## Documentation
 
@@ -100,7 +108,7 @@ Code de sortie : **0** si rien n'est suspect, **1** si au moins une requête est
 ## Développement
 
 ```bash
-uv run pytest                                      # 40 tests, ~15 s
+uv run pytest                                      # ~15 s
 uv run ruff check . && uv run ruff format --check .
 ```
 
