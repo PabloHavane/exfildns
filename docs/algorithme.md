@@ -63,13 +63,13 @@ longs (ceux du dataset étant coupés). Noms repris de l'article de référence.
 |---|---|---|---|
 | `FQDN_count` | nombre de caractères | 40 | 14 |
 | `upper` | majuscules | 14 | 0 |
-| `lower` | minuscules | 14 | 12 |
+| `lower` | minuscules | 14 | 13 |
 | `numeric` | chiffres | 10 | 0 |
 | `special` | autres caractères (points, tirets…) | 2 | 1 |
-| `entropy` | entropie de Shannon, en bits par caractère | 4,78 | 3,26 |
+| `entropy` | entropie de Shannon, en bits par caractère | 4,78 | 3,28 |
 | `labels` | nombre de parties séparées par des points | 2 | 2 |
 | `labels_max` | longueur de la plus longue partie | 34 | 9 |
-| `labels_average` | longueur moyenne des parties | 19,5 | 5,3 |
+| `labels_average` | longueur moyenne des parties | 19,5 | 5,5 |
 
 L'**entropie** mesure le désordre : `H = − Σ p(c) · log2 p(c)` sur la fréquence `p(c)` de chaque
 caractère. `aaaa` vaut 0, un texte où 16 caractères apparaissent autant chacun vaut 4. Le base64
@@ -95,7 +95,8 @@ Un réseau de neurones dense (perceptron multicouche), dans le style du TP Spam 
   (autour de 4). La couche apprend moyenne et écart-type **sur le seul jeu d'entraînement** et est
   sauvegardée dans le fichier `.keras` : l'analyse d'une capture applique la même mise à l'échelle.
 - **Entraînement** : optimiseur `adam`, perte `binary_crossentropy`, lots de 256 requêtes.
-  `class_weight` compense le déséquilibre (3,3 exfiltrations pour 1 requête bénigne).
+  `class_weight` compense le déséquilibre des classes (environ 4 exfiltrations pour
+  1 requête bénigne dans le jeu d'entraînement).
 - **Overfitting** : 20 % du jeu d'entraînement sert de validation ; l'arrêt anticipé
   (`EarlyStopping`, patience 3) stoppe quand la perte de validation ne baisse plus et **garde les
   poids de la meilleure époque**. C'est la règle du cours « prendre l'époque où `val_loss` est
