@@ -37,7 +37,7 @@ def lire_question(dns: bytes) -> tuple[str, int | None]:
             if len(dns) >= i + 3:
                 return ".".join(labels), struct.unpack(">H", dns[i + 1 : i + 3])[0]
             return ".".join(labels), None
-        if longueur >= 0xC0:  # pointeur de compression : n'existe pas dans une question
+        if longueur >= 0x40:  # pointeur de compression ou type réservé : pas un label normal
             break
         # latin-1 : un octet = un caractère, pour que les longueurs restent justes
         labels.append(dns[i + 1 : i + 1 + longueur].decode("latin-1"))
