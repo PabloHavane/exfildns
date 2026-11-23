@@ -14,3 +14,22 @@ def test_version(capsys):
         main(["--version"])
     assert exc.value.code == 0
     assert __version__ in capsys.readouterr().out
+
+
+def test_train_puis_evaluate(dossier_donnees, tmp_path, capsys):
+    modele = tmp_path / "modeles" / "exfildns.keras"
+
+    assert main(["train", str(dossier_donnees), "-o", str(modele), "--epochs", "20"]) == 0
+    sortie = capsys.readouterr().out
+    assert modele.exists()
+    assert "rappel" in sortie
+    assert "Modèle sauvegardé" in sortie
+
+    assert main(["evaluate", str(dossier_donnees), "-m", str(modele)]) == 0
+    sortie = capsys.readouterr().out
+    assert "rappel (exfiltrations détectées) : 1.0000" in sortie
+
+
+def test_captures_test_inconnues(dossier_donnees):
+    with pytest.raises(ValueError):
+        main(["evaluate", str(dossier_donnees), "--captures-test", "inexistante"])
