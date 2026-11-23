@@ -43,3 +43,10 @@ Colonnes `capture, dst, qname, label` + features, au lieu d'un couple `(X, y)` :
 `capture` est nécessaire pour découper train/test par capture (#5). Relire les PCAP prend ~1 min 30,
 donc les requêtes brutes sont mises en cache dans `data/requetes.csv` (3 s ensuite). Les features
 sont recalculées à chaque chargement ; supprimer le cache si les PCAP ou l'étiquetage changent.
+
+## 2026-11-23 — Test sur des captures entières (`heavy_video` + `benign_heavy_3`)
+Plutôt que le tirage aléatoire 70/30 de l'article : les requêtes d'une même capture se ressemblent
+(docs/donnees.md, risque 3), un tirage aléatoire mettrait des quasi-doublons en train et en test.
+Le test (~24 % des requêtes) ne couvre donc qu'un type de fichier exfiltré (vidéo) : les autres
+types servent à l'entraînement. Modèle de référence : régression logistique standardisée,
+`class_weight="balanced"` ; 0 erreur sur les 70 159 requêtes de test.
