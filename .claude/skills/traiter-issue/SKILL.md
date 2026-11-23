@@ -21,7 +21,8 @@ git switch -c <type>/<n°>-<description-courte>
 
 ## 2. Implémenter (KISS)
 
-- Faire **uniquement** ce que demande l'issue. Une idée en plus = une nouvelle issue (`gh issue create`).
+- Faire **uniquement** ce que demande l'issue. Une idée en plus = une nouvelle issue (`gh issue create`),
+  puis préfixer son titre par son numéro : `gh issue edit <n°> --title "[#<n°>] <titre>"`.
 - Écrire ou compléter les tests dans `tests/test_<module>.py`, avec des données synthétiques minuscules.
 - Respecter `CLAUDE.md` : français, même fonction de features à l'entraînement et à l'inférence,
   aucune donnée ni modèle commité.
@@ -58,11 +59,13 @@ Closes #<n°>"
 
 ```bash
 gh pr checks --watch            # attendre la CI
-gh pr merge --rebase --delete-branch   # rebase : garde les petits commits
+gh pr merge --squash --delete-branch   # squash obligatoire vers main ; supprime la branche
 git switch main && git pull --rebase
 ```
 
 Si la CI échoue : corriger sur la même branche, pousser, recommencer l'étape 6.
-En cas de conflit avec `main` : `git pull --rebase origin main`, résoudre, relancer les tests, `git push --force-with-lease`.
+En cas de conflit avec `main` : `git merge origin/main` sur la branche, résoudre, relancer les
+tests, committer et pousser normalement (le squash final efface ce commit de merge de
+l'historique de `main`). **Jamais de push forcé** : il est interdit par `.claude/settings.json`.
 
 Terminer par un résumé de 2-3 lignes à l'humain : ce qui a été fait, le lien de la PR, la suite logique.

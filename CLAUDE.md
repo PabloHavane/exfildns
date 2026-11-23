@@ -57,7 +57,7 @@ La CI (`.github/workflows/ci.yml`) exécute lint + formatage + tests sur chaque 
 src/exfildns/
   features.py   # features stateless calculées à partir d'un nom de domaine
   pcap.py       # lecture d'un PCAP -> requêtes DNS (scapy)
-  dataset.py    # chargement du dataset -> X, y
+  dataset.py    # PCAP du dataset -> DataFrame étiqueté (capture, qname, label + features)
   model.py      # construction du MLP Keras, entraînement, évaluation, sauvegarde/chargement (.keras)
   cli.py        # exfildns train | evaluate | scan
 tests/          # un fichier de test par module
@@ -77,17 +77,23 @@ Fixer les graines aléatoires (`keras.utils.set_random_seed`) pour des résultat
 ## Workflow git : GitLab Flow
 
 - `main` : branche d'intégration, **protégée** (merge uniquement par PR avec CI verte).
-- `production` : version livrée. On y arrive uniquement par une PR `main` → `production`
-  (skill `livrer-production`).
+- `production` : version livrée, **protégée**. Seule `main` peut y être mergée (check CI
+  `source-production`), par PR en **merge** ou **rebase**, jamais en squash (skill `livrer-production`).
+- Titre d'issue préfixé par son numéro : `[#9] Extraire les requêtes DNS d'un fichier PCAP`.
+  Le numéro n'est connu qu'après création : créer l'issue, puis
+  `gh issue edit <n°> --title "[#<n°>] <titre>"`.
 - Une branche par issue, créée depuis `main` à jour :
   `feat/<n°>-<description>`, `fix/<n°>-…`, `docs/<n°>-…`, `test/<n°>-…`, `chore/<n°>-…`, `refactor/<n°>-…`
   (en kebab-case, ex. `feat/4-features-stateless`).
 - Commits **Conventional Commits** en français : `feat(features): ajoute le calcul de l'entropie`.
   Types : `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `ci`, `perf`, `style`.
 - **Petits commits** : un commit = un changement cohérent qui passe les tests (ex. la fonction,
-  puis ses tests, puis son branchement dans la CLI). Cela permet de revenir en arrière finement.
-- PR vers `main` avec `Closes #<n°>` ; merge en **rebase** (`gh pr merge --rebase`) pour conserver
-  les petits commits dans l'historique ; branche supprimée après merge.
+  puis ses tests, puis son branchement dans la CLI). Cela permet de revenir en arrière finement
+  pendant le travail sur la branche.
+- PR vers `main` avec `Closes #<n°>`, mergée en **squash** (`gh pr merge --squash`) : une PR = un
+  commit sur `main`. Le **titre de la PR devient le message du commit**, il doit donc suivre les
+  Conventional Commits. Les autres méthodes sont refusées par GitHub sur `main`.
+- **Branche supprimée après chaque PR** (automatique sur GitHub + `--delete-branch` en local).
 - Pas de relecture humaine obligatoire : l'agent `relecteur` sert de relecteur avant le merge.
 
 Pour traiter une issue de bout en bout, utilise le skill **`traiter-issue`**.

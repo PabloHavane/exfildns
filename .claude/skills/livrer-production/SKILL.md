@@ -10,7 +10,9 @@ description: Promeut main vers la branche production selon le GitLab Flow (PR ma
    git switch main && git pull --rebase
    uv sync && uv run ruff check . && uv run pytest -q
    ```
-2. Ouvrir la PR de promotion (merge commit classique, pour garder l'historique) :
+2. Ouvrir la PR de promotion. Seule `main` est acceptée comme source (check `source-production`)
+   et GitHub refuse le squash. Utiliser **`--merge`** : un rebase réécrirait les commits sur
+   `production`, qui divergerait alors de `main`. **Pas de `--delete-branch`** : la source est `main`.
    ```bash
    gh pr create --base production --head main --title "release: vX.Y.Z" --body "<changements depuis la dernière livraison>"
    gh pr checks --watch
