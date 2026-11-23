@@ -221,3 +221,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- exfildns ---
+# Données et modèles : jamais versionnés (volumineux)
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+*.pcap
+*.pcapng
+# Réglages Claude personnels (les réglages partagés sont dans .claude/settings.json)
+.claude/settings.local.json
