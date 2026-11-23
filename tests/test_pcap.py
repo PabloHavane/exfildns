@@ -56,7 +56,8 @@ def test_read_dns_queries_filtre_et_extrait(tmp_path):
         Ether() / IPv6(src="fe80::1", dst="fe80::2") / UDP(dport=53) / DNS(qd=DNSQR(qname="v6.fr"))
     )
     tcp = Ether() / IP() / TCP(dport=443)
-    ecrire_pcap(chemin, [requete("example.com"), reponse, ipv6, tcp])
+    udp_vide = Ether() / IP() / UDP(dport=53)
+    ecrire_pcap(chemin, [requete("example.com"), reponse, ipv6, tcp, udp_vide])
 
     df = read_dns_queries(chemin)
 
