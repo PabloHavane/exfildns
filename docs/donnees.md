@@ -61,7 +61,55 @@ d'attaque est surtout fait de résolutions inverses (PTR) de `192.168.x.x`, celu
 bénigne de requêtes A. Le modèle classerait toute résolution inverse du réseau local comme une
 exfiltration. **Ce modèle ne détecte pas l'exfiltration.**
 
-## Suite
+## PCAP heavy : la source retenue
 
-Décision en attente (voir `docs/decisions.md`) : récupérer les **PCAP** et/ou la partie
-**heavy** du dataset pour vérifier qu'ils contiennent bien les requêtes d'exfiltration.
+```
+data/
+  Attacks/  heavy_<type>.pcap   6 captures, 20 à 35 Mo chacune
+  Benign/   benign_heavy_<1-3>.pcap   3 captures, 12 à 15 Mo chacune
+```
+
+Requêtes DNS (IPv4, UDP, port 53) mesurées avec un lecteur minimal :
+
+| Capture | Requêtes | Vers `192.168.20.72` | Vers `8.8.8.8` | Tronquées |
+|---|---|---|---|---|
+| heavy_audio | 38 171 | 38 068 | 103 | 38 068 |
+| heavy_compressed | 30 672 | 30 568 | 104 | 30 568 |
+| heavy_exe | 40 657 | 40 539 | 118 | 40 539 |
+| heavy_image | 42 081 | 41 987 | 94 | 41 987 |
+| heavy_text | 27 142 | 26 907 | 235 | 26 908 |
+| heavy_video | 44 924 | 44 780 | 144 | 44 780 |
+| benign_heavy_1 | 23 127 | 0 | 23 127 | 8 |
+| benign_heavy_2 | 18 187 | 0 | 18 187 | 5 |
+| benign_heavy_3 | 25 235 | 0 | 25 235 | 2 |
+
+Totaux : **222 849 requêtes d'exfiltration**, 66 549 requêtes bénignes + 798 requêtes de fond
+dans les captures d'attaque.
+
+Constats :
+
+- **L'exfiltration est bien visible** : toutes les requêtes vers le serveur DNS de l'attaquant
+  `192.168.20.72` ont la forme DNSExfiltrator `<n° de morceau>.<données base64>.<domaine>`,
+  ex. `0.J4HgHlgzQH6j0WZF8m3DQx3jGodWnpcKYKFAeUM…`, `init.IRJUGXZRGY2TALSKKBDXYOBQGA4DC…`.
+- Le trafic de fond des captures d'attaque passe par `8.8.8.8` (Microsoft, Google…) :
+  on peut donc **étiqueter chaque requête**, et non plus le fichier entier.
+- Les bénignes sont des requêtes vers des domaines du top Alexa (`freshcoal.com`, `*.co.jp`…).
+- **Les paquets sont capturés tronqués à 96 octets** : il ne reste qu'environ 40 caractères
+  du nom de domaine. Toutes les requêtes d'exfiltration sont coupées (le domaine de l'attaquant
+  n'est jamais visible), presque aucune bénigne ne l'est.
+- **scapy ne décode pas ces requêtes tronquées** (4 993 sur 5 000 rendues en octets bruts) :
+  il faut lire le nom de domaine directement dans les octets de la charge UDP.
+- Classes déséquilibrées dans le sens inverse de la réalité : ~3,3 requêtes d'exfiltration pour
+  1 bénigne.
+
+## Risques pour le modèle
+
+1. **Artefact de troncature** : si les features sont calculées sur les noms complets, le modèle
+   peut apprendre « nom coupé à ~40 caractères = exfiltration ». Parade : calculer les features
+   sur les **40 premiers caractères** du nom, à l'entraînement comme à l'inférence.
+2. **Tâche facile, résultats optimistes** : base64 aléatoire contre domaines populaires. Les
+   scores seront probablement très élevés ; il faudra le dire et en discuter les limites.
+3. **Fuite entre train et test** : les requêtes d'une même capture se ressemblent. Évaluer de
+   préférence sur des **captures entières mises de côté** plutôt que sur un tirage aléatoire.
+
+Les CSV « light » (section précédente) ne sont **pas utilisés**.
