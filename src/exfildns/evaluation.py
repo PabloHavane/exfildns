@@ -53,7 +53,8 @@ def importance_permutation(modele, X: pd.DataFrame, y, repetitions: int = 3) -> 
 
     On mélange une colonne à la fois, ce qui casse son lien avec l'étiquette, puis on mesure
     de combien la perte (entropie croisée binaire) augmente. Plus la hausse est forte, plus le
-    modèle s'appuie sur cette feature. Fonctionne pour n'importe quel modèle.
+    modèle s'appuie sur cette feature ; une valeur nulle ou négative signifie « aucun effet ».
+    `X` doit être un DataFrame. Fonctionne pour n'importe quel modèle.
     """
     rng = np.random.default_rng(GRAINE)
     y = np.asarray(y)

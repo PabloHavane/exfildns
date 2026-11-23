@@ -87,7 +87,7 @@ s'appuie sur cette feature. La méthode marche pour n'importe quel modèle, rés
 | Feature | Hausse de la perte, réseau | Hausse de la perte, référence | Coefficient de la référence (features standardisées) |
 |---|---|---|---|
 | `entropy` | 0,117 | 0,114 | +3,77 |
-| `upper` | 0,113 | 0,041 | +4,08 |
+| `upper` | 0,113 | 0,040 | +4,08 |
 | `FQDN_count` | 0,071 | 0,037 | +3,05 |
 | `labels_max` | 0,020 | 0,012 | +2,51 |
 | `numeric` | 0,002 | 0,001 | +1,65 |
@@ -102,17 +102,21 @@ Lecture :
   aléatoires), les **majuscules** (absentes des domaines classiques, très présentes en base64),
   la **longueur** du nom et la **longueur du plus long label**. C'est exactement la signature
   d'un encodage base64 dans un sous-domaine.
-- Coefficients positifs = la feature pousse vers « exfiltration ». La régression logistique est
-  directement lisible : chaque écart-type d'entropie en plus multiplie la cote d'exfiltration par
-  e^3,77 ≈ 43.
+- Signe des coefficients de la référence : positif = pousse vers « exfiltration », **les autres
+  features restant fixes**. Comme `entropy`, `FQDN_count`, `upper` et `labels_max` augmentent
+  ensemble, un coefficient isolé se lit mal : `labels_average` est négatif alors que sa valeur est
+  bien plus haute pour l'exfiltration (19,5 contre 5,7), car son effet est déjà porté par
+  `labels_max`. Leur **taille** n'a pas de sens absolu non plus : les classes étant parfaitement
+  séparables, c'est la régularisation de la régression logistique qui fixe leur ordre de grandeur.
 - Les hausses restent modestes alors que les modèles sont parfaits : les features sont
   **redondantes** (une seule suffit presque, voir plus haut). Quand on en brouille une, les autres
   compensent.
 - `lower`, `special`, `labels` ne servent à rien : les domaines bénins et l'exfiltration en ont
-  des quantités comparables.
+  des quantités comparables. `labels_average`, lui, est **redondant** plutôt qu'inutile
+  (`labels_max` porte la même information).
 
 Phrase à retenir pour l'oral : *le réseau signale une requête quand son nom est long, aléatoire
-(entropie élevée) et contient des majuscules et des chiffres, c'est-à-dire quand il ressemble
+(entropie élevée), contient des majuscules et un label très long, c'est-à-dire quand il ressemble
 à des données encodées en base64 plutôt qu'à un nom de domaine choisi par un humain.*
 
 ## Interprétation honnête : le dataset est trop facile
