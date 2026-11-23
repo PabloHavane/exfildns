@@ -32,7 +32,8 @@ def test_scan_detecte_l_exfiltration(tmp_path, modele, capsys):
     assert code == 1
     assert "25 requêtes DNS analysées, 5 suspectes" in sortie
     assert "10.6.6.6" in sortie
-    assert "attaquant.example" in sortie
+    lignes = sortie.splitlines()
+    assert any("attaquant.example" in ligne and ligne.split()[-1] == "5" for ligne in lignes)
 
 
 def test_scan_trafic_normal(tmp_path, modele, capsys):
@@ -51,7 +52,15 @@ def test_scan_sans_dns(tmp_path, modele, capsys):
     assert "Aucune requête DNS" in capsys.readouterr().out
 
 
+def test_scan_modele_absent(tmp_path, capsys):
+    capture = tmp_path / "capture.pcap"
+    ecrire_pcap(capture, [requete("example.com")])
+
+    assert main(["scan", str(capture), "-m", str(tmp_path / "absent.keras")]) == 2
+    assert "Modèle introuvable" in capsys.readouterr().err
+
+
 def test_domaine_parent():
     assert domaine_parent("www.example.com", tronque=False) == "example.com"
-    assert domaine_parent("0.AbCd", tronque=True).startswith("(nom tronqué")
+    assert domaine_parent("0.AbCd", tronque=True).startswith("(nom incomplet")
     assert domaine_parent("", tronque=False) == "(racine)"
