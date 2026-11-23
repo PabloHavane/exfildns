@@ -33,7 +33,10 @@ def extraire_requetes(dossier: str | Path) -> pd.DataFrame:
             morceaux.append(requetes[COLONNES_REQUETES])
     if not morceaux:
         raise FileNotFoundError(f"Aucun PCAP dans {dossier}/Attacks ni {dossier}/Benign")
-    return pd.concat(morceaux, ignore_index=True)
+    requetes = pd.concat(morceaux, ignore_index=True)
+    if requetes.empty:
+        raise ValueError(f"Aucune requête DNS dans les PCAP de {dossier}")
+    return requetes
 
 
 def load_dataset(dossier: str | Path = "data", cache: bool = True) -> pd.DataFrame:
@@ -50,7 +53,8 @@ def load_dataset(dossier: str | Path = "data", cache: bool = True) -> pd.DataFra
     chemin_cache = Path(dossier) / NOM_CACHE
     if cache and chemin_cache.exists():
         # keep_default_na=False : un nom vide reste "" et ne devient pas NaN
-        requetes = pd.read_csv(chemin_cache, dtype={"qname": str}, keep_default_na=False)
+        texte = {"capture": str, "dst": str, "qname": str}
+        requetes = pd.read_csv(chemin_cache, dtype=texte, keep_default_na=False)
     else:
         requetes = extraire_requetes(dossier)
         if cache:
