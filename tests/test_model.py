@@ -25,9 +25,10 @@ def test_split_par_capture():
     assert len(train) + len(test) == len(df)
 
 
-def test_split_refuse_un_test_vide():
+@pytest.mark.parametrize("captures_test", [("inconnue",), ("train", "test")])
+def test_split_refuse_un_train_ou_un_test_vide(captures_test):
     with pytest.raises(ValueError):
-        split_par_capture(jeu_synthetique(), ("inconnue",))
+        split_par_capture(jeu_synthetique(), captures_test)
 
 
 def test_reference_bat_le_hasard():

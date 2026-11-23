@@ -20,7 +20,7 @@ def split_par_capture(
     est_test = df["capture"].isin(captures_test)
     if not est_test.any() or est_test.all():
         raise ValueError(f"Les captures de test {captures_test} doivent couvrir une partie du jeu")
-    return df[~est_test], df[est_test]
+    return df[~est_test].copy(), df[est_test].copy()
 
 
 def entrainer_reference(X: pd.DataFrame, y: pd.Series) -> Pipeline:
