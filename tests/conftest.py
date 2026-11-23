@@ -70,6 +70,7 @@ def dossier_donnees(tmp_path):
     for graine, nom in enumerate(["heavy_audio", "heavy_video"]):
         paquets = [requete(q, dst="192.168.20.72") for q in noms_exfil(60, graine)]
         paquets += [requete(q) for q in noms_benins(10, graine + 10)]  # trafic de fond
+        # snaplen=96 : paquets coupés comme dans le vrai dataset (docs/donnees.md)
         ecrire_pcap(dossier / "Attacks" / f"{nom}.pcap", paquets, snaplen=96)
     for graine, nom in enumerate(["benign_heavy_1", "benign_heavy_3"]):
         paquets = [requete(q) for q in noms_benins(60, graine + 20)]

@@ -11,7 +11,7 @@ from exfildns.model import CAPTURES_TEST, charger, entrainer_mlp, sauvegarder, s
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 
 
-def afficher_metriques(metriques: dict[str, float]) -> None:
+def afficher_metriques(metriques: dict[str, float | int]) -> None:
     print(
         f"  rappel (exfiltrations détectées) : {metriques['rappel']:.4f}\n"
         f"  taux de faux positifs            : {metriques['taux_faux_positifs']:.6f}\n"
@@ -65,7 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--captures-test",
         nargs="+",
         default=list(CAPTURES_TEST),
-        help="captures mises de côté pour le test",
+        help="captures mises de côté pour le test (les mêmes pour train et evaluate ; "
+        "placer le dossier de données avant cette option)",
     )
 
     train = commandes.add_parser("train", parents=[donnees], help="entraîne le modèle")
