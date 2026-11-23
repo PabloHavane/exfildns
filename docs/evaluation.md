@@ -105,7 +105,7 @@ Lecture :
 - Signe des coefficients de la référence : positif = pousse vers « exfiltration », **les autres
   features restant fixes**. Comme `entropy`, `FQDN_count`, `upper` et `labels_max` augmentent
   ensemble, un coefficient isolé se lit mal : `labels_average` est négatif alors que sa valeur est
-  bien plus haute pour l'exfiltration (19,5 contre 5,7), car son effet est déjà porté par
+  bien plus haute pour l'exfiltration (médianes 19,5 contre 5,5), car son effet est déjà porté par
   `labels_max`. Leur **taille** n'a pas de sens absolu non plus : les classes étant parfaitement
   séparables, c'est la régularisation de la régression logistique qui fixe leur ordre de grandeur.
 - Les hausses restent modestes alors que les modèles sont parfaits : les features sont
