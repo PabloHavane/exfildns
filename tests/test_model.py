@@ -1,6 +1,6 @@
 import numpy as np
-import pandas as pd
 import pytest
+from conftest import jeu_synthetique
 
 from exfildns.features import FEATURES
 from exfildns.model import (
@@ -11,17 +11,6 @@ from exfildns.model import (
     sauvegarder,
     split_par_capture,
 )
-
-
-def jeu_synthetique(n=400, graine=0):
-    """Deux classes séparables : la classe 1 a des valeurs plus grandes sur toutes les features."""
-    rng = np.random.default_rng(graine)
-    y = np.arange(n) % 2
-    X = rng.normal(size=(n, len(FEATURES))) + 3 * y[:, None]
-    df = pd.DataFrame(X, columns=FEATURES)
-    df["label"] = y
-    df["capture"] = np.where(np.arange(n) < n * 3 // 4, "train", "test")
-    return df
 
 
 def test_split_par_capture():
