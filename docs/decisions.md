@@ -8,4 +8,6 @@ utilisé comme outil (split, métriques, régression logistique de référence).
 argparse (bibliothèque standard) suffit pour la CLI. Python 3.12 car supporté par TensorFlow.
 
 ## 2026-11-23 — GitLab Flow : `main` (intégration, protégée) → `production` (livraison)
-Une branche par issue, petits commits, PR mergée en rebase vers `main` avec CI verte, promotion par PR `main` → `production`.
+Une branche par issue (supprimée après merge), petits commits sur la branche, PR mergée en squash
+vers `main` avec CI verte. Promotion par PR `main` → `production` en merge (ou rebase), jamais en squash ;
+`main` est la seule source autorisée vers `production`.

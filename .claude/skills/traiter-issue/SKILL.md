@@ -58,14 +58,13 @@ Closes #<n°>"
 
 ```bash
 gh pr checks --watch            # attendre la CI
-gh pr merge --rebase --delete-branch   # rebase : garde les petits commits
+gh pr merge --squash --delete-branch   # squash obligatoire vers main ; supprime la branche
 git switch main && git pull --rebase
 ```
 
 Si la CI échoue : corriger sur la même branche, pousser, recommencer l'étape 6.
 En cas de conflit avec `main` : `git merge origin/main` sur la branche, résoudre, relancer les
-tests, committer et pousser normalement (le merge en rebase de GitHub refusant les conflits,
-privilégier des PR petites et fréquentes). **Jamais de push forcé** : il est interdit par
-`.claude/settings.json`.
+tests, committer et pousser normalement (le squash final efface ce commit de merge de
+l'historique de `main`). **Jamais de push forcé** : il est interdit par `.claude/settings.json`.
 
 Terminer par un résumé de 2-3 lignes à l'humain : ce qui a été fait, le lien de la PR, la suite logique.

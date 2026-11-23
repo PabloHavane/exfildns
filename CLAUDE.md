@@ -77,17 +77,20 @@ Fixer les graines aléatoires (`keras.utils.set_random_seed`) pour des résultat
 ## Workflow git : GitLab Flow
 
 - `main` : branche d'intégration, **protégée** (merge uniquement par PR avec CI verte).
-- `production` : version livrée. On y arrive uniquement par une PR `main` → `production`
-  (skill `livrer-production`).
+- `production` : version livrée, **protégée**. Seule `main` peut y être mergée (check CI
+  `source-production`), par PR en **merge** ou **rebase**, jamais en squash (skill `livrer-production`).
 - Une branche par issue, créée depuis `main` à jour :
   `feat/<n°>-<description>`, `fix/<n°>-…`, `docs/<n°>-…`, `test/<n°>-…`, `chore/<n°>-…`, `refactor/<n°>-…`
   (en kebab-case, ex. `feat/4-features-stateless`).
 - Commits **Conventional Commits** en français : `feat(features): ajoute le calcul de l'entropie`.
   Types : `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `ci`, `perf`, `style`.
 - **Petits commits** : un commit = un changement cohérent qui passe les tests (ex. la fonction,
-  puis ses tests, puis son branchement dans la CLI). Cela permet de revenir en arrière finement.
-- PR vers `main` avec `Closes #<n°>` ; merge en **rebase** (`gh pr merge --rebase`) pour conserver
-  les petits commits dans l'historique ; branche supprimée après merge.
+  puis ses tests, puis son branchement dans la CLI). Cela permet de revenir en arrière finement
+  pendant le travail sur la branche.
+- PR vers `main` avec `Closes #<n°>`, mergée en **squash** (`gh pr merge --squash`) : une PR = un
+  commit sur `main`. Le **titre de la PR devient le message du commit**, il doit donc suivre les
+  Conventional Commits. Les autres méthodes sont refusées par GitHub sur `main`.
+- **Branche supprimée après chaque PR** (automatique sur GitHub + `--delete-branch` en local).
 - Pas de relecture humaine obligatoire : l'agent `relecteur` sert de relecteur avant le merge.
 
 Pour traiter une issue de bout en bout, utilise le skill **`traiter-issue`**.
