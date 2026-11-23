@@ -105,6 +105,7 @@ def sauvegarder(modele: keras.Model, chemin: str | Path) -> None:
 
 
 def charger(chemin: str | Path) -> keras.Model:
+    """Recharge un réseau sauvegardé par `sauvegarder` (le chemin doit finir par `.keras`)."""
     return keras.models.load_model(chemin)
 
 
