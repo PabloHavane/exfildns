@@ -1,7 +1,9 @@
 # Évaluation des modèles
 
-Toutes les mesures sont reproductibles (graine 0) avec `exfildns.dataset.load_dataset`,
-`exfildns.model` et `exfildns.evaluation`.
+Mesures faites avec la graine 0 et les fonctions de `exfildns.dataset`, `exfildns.model` et
+`exfildns.evaluation`. Le tableau de résultats est reproductible avec `exfildns train` / `evaluate` ;
+les expériences complémentaires (type de fichier mis de côté, feature unique) ont été lancées avec
+de petits scripts ponctuels qui enchaînent ces mêmes fonctions.
 
 ## Protocole
 
@@ -39,8 +41,11 @@ Pourquoi ce choix :
 > Attention : la diapo 9 du cours inverse les formules de précision et de rappel. Les définitions
 > ci-dessus sont les définitions standard (celles de scikit-learn).
 
-**Seuil de décision : 0,5.** Avec une PR-AUC de 1,0, aucun autre seuil ne fait mieux sur ce
-jeu ; 0,5 est le seuil naturel d'une sortie sigmoïde. Il est réglable dans l'application.
+**Seuil de décision : 0,5**, le seuil par défaut d'une sortie sigmoïde. Sur le test, un seuil
+entre 0,66 (probabilité bénigne la plus haute) et 0,98 (probabilité d'exfiltration la plus basse)
+supprimerait la seule fausse alerte du réseau, mais **choisir le seuil en regardant le jeu de test
+serait une fuite** : le score ne mesurerait plus la généralisation. Il faudrait le régler sur la
+validation, ce qui n'apporte rien ici. Le seuil est un paramètre (`seuil`) de `evaluer`.
 
 ## Résultats sur le jeu de test
 
