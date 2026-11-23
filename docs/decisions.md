@@ -58,3 +58,9 @@ enregistrée dans le `.keras` : l'inférence applique la même mise à l'échell
 de validation ; `EarlyStopping(patience=3, restore_best_weights=True)` automatise le choix
 « époque de val_loss minimale » du cours. 865 paramètres entraînables, ~6 s d'entraînement,
 1 erreur sur les 70 159 requêtes de test.
+
+## 2026-11-23 — Métrique principale : rappel ; second critère : taux de faux positifs ; seuil 0,5
+Rater une exfiltration est le pire cas, d'où le rappel. Le taux de faux positifs empêche le
+détecteur « qui alerte sur tout ». L'accuracy est écartée car le dataset inverse la proportion
+réelle des classes. Seuil 0,5 (défaut de la sigmoïde) : il n'est pas réglé sur le test pour éviter
+une fuite. Détails et chiffres dans `docs/evaluation.md`.
