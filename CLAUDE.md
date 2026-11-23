@@ -57,7 +57,7 @@ La CI (`.github/workflows/ci.yml`) exécute lint + formatage + tests sur chaque 
 src/exfildns/
   features.py   # features stateless calculées à partir d'un nom de domaine
   pcap.py       # lecture d'un PCAP -> requêtes DNS (scapy)
-  dataset.py    # chargement du dataset -> X, y
+  dataset.py    # PCAP du dataset -> DataFrame étiqueté (capture, qname, label + features)
   model.py      # construction du MLP Keras, entraînement, évaluation, sauvegarde/chargement (.keras)
   cli.py        # exfildns train | evaluate | scan
 tests/          # un fichier de test par module

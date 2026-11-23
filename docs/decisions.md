@@ -37,3 +37,9 @@ de Shannon du nom entier (tronqué) : elle diffère de celle des CSV du dataset 
 `10.1.168.192.in-addr.arpa`), ce qui est sans effet puisque ces CSV ne sont pas utilisés.
 Limite : la longueur est très discriminante (100 % des noms d'exfiltration atteignent 40 caractères,
 0,05 % des bénins) ; un vrai réseau a plus de noms bénins longs (CDN, cloud) que le top Alexa.
+
+## 2026-11-23 — `load_dataset` renvoie un seul DataFrame, avec cache des requêtes brutes
+Colonnes `capture, dst, qname, label` + features, au lieu d'un couple `(X, y)` : la colonne
+`capture` est nécessaire pour découper train/test par capture (#5). Relire les PCAP prend ~1 min 30,
+donc les requêtes brutes sont mises en cache dans `data/requetes.csv` (3 s ensuite). Les features
+sont recalculées à chaque chargement ; supprimer le cache si les PCAP ou l'étiquetage changent.
