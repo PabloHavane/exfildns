@@ -77,6 +77,44 @@ Réseau entraîné sans le type de fichier testé (et sans `benign_heavy_3`), pu
 Le modèle généralise d'un type de fichier à l'autre : DNSExfiltrator encode tout en base64,
 quel que soit le contenu.
 
+## Explication du modèle : quelles features comptent ?
+
+**Importance par permutation** (`importance_permutation`, sur le jeu de test) : on mélange les
+valeurs d'une feature entre les requêtes, ce qui casse son lien avec l'étiquette, puis on mesure
+de combien la perte (entropie croisée binaire) augmente. Une forte hausse signifie que le modèle
+s'appuie sur cette feature. La méthode marche pour n'importe quel modèle, réseau compris.
+
+| Feature | Hausse de la perte, réseau | Hausse de la perte, référence | Coefficient de la référence (features standardisées) |
+|---|---|---|---|
+| `entropy` | 0,117 | 0,114 | +3,77 |
+| `upper` | 0,113 | 0,041 | +4,08 |
+| `FQDN_count` | 0,071 | 0,037 | +3,05 |
+| `labels_max` | 0,020 | 0,012 | +2,51 |
+| `numeric` | 0,002 | 0,001 | +1,65 |
+| `labels` | 0,000 | 0,000 | +0,42 |
+| `labels_average` | 0,000 | 0,000 | −0,73 |
+| `special` | 0,000 | 0,000 | +0,11 |
+| `lower` | 0,000 | 0,000 | −0,35 |
+
+Lecture :
+
+- Les deux modèles s'appuient sur **les mêmes quatre signaux** : l'**entropie** (caractères
+  aléatoires), les **majuscules** (absentes des domaines classiques, très présentes en base64),
+  la **longueur** du nom et la **longueur du plus long label**. C'est exactement la signature
+  d'un encodage base64 dans un sous-domaine.
+- Coefficients positifs = la feature pousse vers « exfiltration ». La régression logistique est
+  directement lisible : chaque écart-type d'entropie en plus multiplie la cote d'exfiltration par
+  e^3,77 ≈ 43.
+- Les hausses restent modestes alors que les modèles sont parfaits : les features sont
+  **redondantes** (une seule suffit presque, voir plus haut). Quand on en brouille une, les autres
+  compensent.
+- `lower`, `special`, `labels` ne servent à rien : les domaines bénins et l'exfiltration en ont
+  des quantités comparables.
+
+Phrase à retenir pour l'oral : *le réseau signale une requête quand son nom est long, aléatoire
+(entropie élevée) et contient des majuscules et des chiffres, c'est-à-dire quand il ressemble
+à des données encodées en base64 plutôt qu'à un nom de domaine choisi par un humain.*
+
 ## Interprétation honnête : le dataset est trop facile
 
 - **Une seule feature suffit presque** : la régression logistique sur une feature unique atteint
