@@ -89,6 +89,7 @@ def test_lire_requetes_toute_la_base(base_demo):
 
     assert len(requetes) == 30
     assert list(requetes.columns) == [
+        "id",
         "timestamp",
         "src",
         "dst",
@@ -407,11 +408,11 @@ def test_app_affiche_l_alerte(base_demo, monkeypatch):
         "Postes observés": "3",
     }
     assert "attaquant.example" in at.error[0].value
-    alerte = at.dataframe[0].value
+    alerte = at.tabs[0].dataframe[0].value
     assert alerte.loc[0, "domaine"] == "attaquant.example"
-    assert len(at.dataframe) == 4  # alertes, postes, serveurs, requêtes suspectes
-    assert at.dataframe[1].value.iloc[0]["poste"] == "10.0.0.66"
-    assert at.dataframe[2].value.columns[0] == "serveur DNS"
+    assert len(at.tabs[0].dataframe) == 4  # alertes, postes, serveurs, requêtes suspectes
+    assert at.tabs[0].dataframe[1].value.iloc[0]["poste"] == "10.0.0.66"
+    assert at.tabs[0].dataframe[2].value.columns[0] == "serveur DNS"
 
 
 def test_app_seuil_plus_strict(base_demo, monkeypatch):
@@ -422,7 +423,7 @@ def test_app_seuil_plus_strict(base_demo, monkeypatch):
     assert not at.exception
     assert {m.label: m.value for m in at.metric}["Requêtes suspectes"] == "0"
     assert at.success
-    assert len(at.dataframe) == 0
+    assert len(at.tabs[0].dataframe) == 0
 
 
 def test_app_minimum_de_requetes(base_demo, monkeypatch):
@@ -532,7 +533,7 @@ def test_analyser_capture_fichier_invalide(modele):
 
 
 def deposer(at, nom, contenu):
-    at.tabs[1].file_uploader(key="capture").set_value((nom, contenu, "application/octet-stream"))
+    at.tabs[2].file_uploader(key="capture").set_value((nom, contenu, "application/octet-stream"))
     return at.run()
 
 
@@ -544,8 +545,12 @@ def app_capture(tmp_path, modele, monkeypatch):
 def test_app_onglet_capture_sans_fichier(tmp_path, modele, monkeypatch):
     at = app_capture(tmp_path, modele, monkeypatch)
 
-    assert [t.label for t in at.tabs] == ["Supervision en direct", "Analyser une capture"]
-    assert "exfildns scan" in at.tabs[1].caption[0].value
+    assert [t.label for t in at.tabs] == [
+        "Supervision en direct",
+        "Requêtes",
+        "Analyser une capture",
+    ]
+    assert "exfildns scan" in at.tabs[2].caption[0].value
     assert not at.exception
 
 
@@ -560,7 +565,7 @@ def test_app_capture_avec_tunneling(tmp_path, modele, monkeypatch):
     at = deposer(at, "tunnel.pcap", contenu)
 
     assert not at.exception
-    onglet = at.tabs[1]
+    onglet = at.tabs[2]
     valeurs = {m.label: m.value for m in onglet.metric}
     assert valeurs["Requêtes analysées"] == "16"
     assert valeurs["Requêtes suspectes"] == "6"
@@ -575,7 +580,7 @@ def test_app_capture_benigne(tmp_path, modele, monkeypatch):
 
     at = deposer(at, "normal.pcap", contenu)
 
-    onglet = at.tabs[1]
+    onglet = at.tabs[2]
     assert not at.exception
     assert {m.label: m.value for m in onglet.metric}["Alertes"] == "0"
     assert "Aucune alerte" in onglet.success[0].value
@@ -588,7 +593,7 @@ def test_app_capture_sans_dns(tmp_path, modele, monkeypatch):
     at = deposer(at, "web.pcap", contenu)
 
     assert not at.exception
-    assert "Aucune requête DNS" in at.tabs[1].info[0].value
+    assert "Aucune requête DNS" in at.tabs[2].info[0].value
 
 
 def test_app_capture_fichier_invalide(tmp_path, modele, monkeypatch):
@@ -597,7 +602,7 @@ def test_app_capture_fichier_invalide(tmp_path, modele, monkeypatch):
     at = deposer(at, "faux.pcap", b"ceci n'est pas une capture")
 
     assert not at.exception
-    assert "n'est pas une capture réseau lisible" in at.tabs[1].error[0].value
+    assert "n'est pas une capture réseau lisible" in at.tabs[2].error[0].value
 
 
 def test_app_capture_modele_absent(tmp_path, monkeypatch):
@@ -607,18 +612,18 @@ def test_app_capture_modele_absent(tmp_path, monkeypatch):
     at = deposer(at, "capture.pcap", b"peu importe")
 
     assert not at.exception
-    assert "Modèle introuvable" in at.tabs[1].warning[0].value
+    assert "Modèle introuvable" in at.tabs[2].warning[0].value
 
 
 def test_app_capture_reglages_appliques(tmp_path, modele, monkeypatch):
     contenu = octets_pcap(tmp_path, [requete(q, dst="10.6.6.6") for q in noms_exfil(6, graine=15)])
     at = deposer(app_capture(tmp_path, modele, monkeypatch), "tunnel.pcap", contenu)
-    assert {m.label: m.value for m in at.tabs[1].metric}["Alertes"] == "1"
+    assert {m.label: m.value for m in at.tabs[2].metric}["Alertes"] == "1"
 
     at.number_input(key="min_requetes").set_value(10).run()
 
     assert not at.exception
-    assert {m.label: m.value for m in at.tabs[1].metric}["Alertes"] == "0"
+    assert {m.label: m.value for m in at.tabs[2].metric}["Alertes"] == "0"
 
 
 def test_dashboard_et_alertes_sans_tensorflow():
@@ -740,3 +745,134 @@ def test_graphique_activite_sans_alerte_pas_de_marqueur():
     vide = pd.DataFrame(columns=["domaine", "instant"])
 
     assert "layer" not in graphique_activite(activite, 1, vide).to_dict()
+
+
+# --- onglet « Requêtes » ---
+
+
+def onglet_requetes(at):
+    return at.tabs[1]
+
+
+def test_app_onglet_requetes_tableau(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    onglet = onglet_requetes(at)
+    assert not at.exception
+    (tableau,) = onglet.dataframe
+    assert len(tableau.value) == 29  # la requête d'il y a 2 jours est hors de la dernière heure
+    assert list(tableau.value.columns) == [
+        "heure",
+        "poste",
+        "nom demandé",
+        "type",
+        "taille",
+        "sous-domaine",
+        "entropie",
+        "labels",
+        "score",
+        "verdict",
+    ]
+    assert "Sélectionner une ligne" in onglet.caption[-1].value
+
+
+def test_app_onglet_requetes_plus_recentes_d_abord(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    heures = onglet_requetes(at).dataframe[0].value["heure"]
+
+    assert heures.is_monotonic_decreasing
+
+
+def test_app_onglet_requetes_filtres(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    at.multiselect(key="f_verdicts").set_value(["suspecte"]).run()
+    assert set(onglet_requetes(at).dataframe[0].value["verdict"]) == {"suspecte"}
+    assert len(onglet_requetes(at).dataframe[0].value) == 9  # 8 tunnel + 1 CDN
+
+    at.text_input(key="f_texte").set_value("ATTAQUANT").run()
+    assert len(onglet_requetes(at).dataframe[0].value) == 8
+
+    at.multiselect(key="f_postes").set_value(["10.0.0.1"]).run()
+    assert onglet_requetes(at).dataframe[0].value.empty
+    assert "0 requête(s) affichée(s) sur 29" in onglet_requetes(at).caption[1].value
+
+
+def test_app_onglet_requetes_figees_jusqu_a_actualiser(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+    remplir(base_demo, [(time.time(), "10.0.0.7", "10.0.0.254", "nouveau.fr", 1, 0.01)])
+
+    at.text_input(key="f_texte").set_value("").run()  # une interaction quelconque
+    assert len(onglet_requetes(at).dataframe[0].value) == 29  # données figées
+
+    at.button(key="actualiser_requetes").click().run()
+    assert len(onglet_requetes(at).dataframe[0].value) == 30
+
+
+def test_app_onglet_requetes_seuil_change_le_verdict(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    at.slider(key="seuil").set_value(0.99).run()
+
+    assert set(onglet_requetes(at).dataframe[0].value["verdict"]) == {"bénigne"}
+
+
+def test_app_onglet_requetes_sans_base(tmp_path, monkeypatch):
+    at = app(tmp_path / "absente.db", monkeypatch).run()
+
+    assert "Aucune base" in onglet_requetes(at).info[0].value
+
+
+def test_app_onglet_requetes_base_vide(tmp_path, monkeypatch):
+    base = tmp_path / "detections.db"
+    ouvrir_base(base).close()
+
+    at = app(base, monkeypatch).run()
+
+    assert "Aucune requête DNS sur la période" in onglet_requetes(at).info[0].value
+
+
+def detail_de_la_requete(qname, base):
+    """Script Streamlit : panneau de détail de la requête `qname` de la base."""
+    import streamlit as st
+
+    from exfildns import detail
+    from exfildns.dashboard import afficher_detail, lire_requetes
+
+    tableau = detail.tableau_detaille(lire_requetes(base), 0.5)
+    afficher_detail(st, tableau[tableau["qname"] == qname].iloc[0], tableau)
+
+
+def test_afficher_detail(base_demo):
+    qname = "3.AbCdEf0123.attaquant.example"
+    at = AppTest.from_function(detail_de_la_requete, args=(qname, str(base_demo))).run()
+
+    assert not at.exception
+    rendu = "".join(m.value for m in at.markdown)
+    assert '<span class="label suspect">AbCdEf0123</span>' in rendu
+    assert '<span class="label parent">attaquant</span>' in rendu
+    comparaison, suite = at.dataframe[:2]
+    assert comparaison.value["feature"].tolist()[0] == "FQDN_count"
+    assert len(suite.value) == 8  # les 8 requêtes du poste vers attaquant.example
+    assert suite.value["sélection"].sum() == 1
+    assert [b.label for b in at.get("download_button")] == [
+        "Exporter cette requête (JSON)",
+        "Exporter la séquence (CSV)",
+    ]
+
+
+def test_afficher_detail_echappe_un_nom_malveillant(tmp_path):
+    base = tmp_path / "detections.db"
+    remplir(
+        base, [(1.0, "10.0.0.6", "10.0.0.254", "<img src=x onerror=alert(1)>.evil.com", 1, 0.9)]
+    )
+
+    at = AppTest.from_function(
+        detail_de_la_requete, args=("<img src=x onerror=alert(1)>.evil.com", str(base))
+    ).run()
+
+    assert not at.exception
+    rendu = "".join(m.value for m in at.markdown)
+    assert "<img" not in rendu
+    assert "&lt;img src=x onerror=alert(1)&gt;" in rendu
