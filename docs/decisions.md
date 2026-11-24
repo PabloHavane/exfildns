@@ -64,3 +64,15 @@ Rater une exfiltration est le pire cas, d'où le rappel. Le taux de faux positif
 détecteur « qui alerte sur tout ». L'accuracy est écartée car le dataset inverse la proportion
 réelle des classes. Seuil 0,5 (défaut de la sigmoïde) : il n'est pas réglé sur le test pour éviter
 une fuite. Détails et chiffres dans `docs/evaluation.md`.
+
+## 2026-11-24 — Notebook Jupyter qui importe le paquet, livré exécuté, hors CI
+Le notebook `notebooks/methodologie.ipynb` appelle les fonctions de `exfildns` au lieu de recopier
+leur code : une seule implémentation des features et du modèle. Il est commité avec ses sorties
+(lisible sans le relancer) et n'est pas exécuté en CI, qui n'a pas le dataset. Jupyter et
+matplotlib sont dans un groupe de dépendances `notebook`, absent de l'application et de la CI.
+
+## 2026-11-24 — Détection en direct : capture séparée, SQLite, Streamlit, Docker
+La capture demande root ou `CAP_NET_RAW` : elle tourne dans un processus à part (`exfildns sniff`)
+qui écrit dans une base SQLite ; le dashboard Streamlit la lit sans privilège. SQLite est dans la
+bibliothèque standard et suffit pour un seul écrivain. Déploiement par Docker compose (deux
+services), relu par l'agent `relecteur-docker`.
