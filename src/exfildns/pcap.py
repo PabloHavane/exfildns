@@ -45,24 +45,39 @@ def lire_question(dns: bytes) -> tuple[str, int | None]:
     return ".".join(labels), None
 
 
+def requete_dns(paquet) -> tuple | None:
+    """Transforme un paquet scapy en requête `(timestamp, src, dst, qname, qtype)`, ou `None`.
+
+    Seules les requêtes DNS (UDP, port 53, IPv4 ou IPv6) sont gardées : réponses et trafic
+    non DNS donnent `None`. Sert à la lecture d'un fichier comme à la capture en direct,
+    pour que les deux voient exactement les mêmes requêtes.
+    """
+    if UDP not in paquet or paquet[UDP].dport != PORT_DNS:
+        return None
+    couche_ip = paquet[IP] if IP in paquet else paquet[IPv6] if IPv6 in paquet else None
+    if couche_ip is None:
+        return None
+    # octets bruts reçus, et non le DNS ré-encodé par scapy (qui échoue sur un paquet tronqué) ;
+    # pour un paquet construit en mémoire, sans octets d'origine, on le sérialise
+    charge = paquet[UDP].payload
+    dns = charge.original or bytes(charge)
+    if not est_requete(dns):
+        return None
+    qname, qtype = lire_question(dns)
+    return float(paquet.time), couche_ip.src, couche_ip.dst, qname, qtype
+
+
+def en_dataframe(requetes: list[tuple]) -> pd.DataFrame:
+    """Met des requêtes renvoyées par `requete_dns` sous forme de DataFrame (colonnes `COLONNES`)."""
+    return pd.DataFrame(requetes, columns=COLONNES).astype({"qtype": "Int64"})
+
+
 def read_dns_queries(chemin: str | Path) -> pd.DataFrame:
     """Extrait les requêtes DNS (UDP, port 53, IPv4 ou IPv6) d'une capture.
 
     Renvoie un DataFrame aux colonnes `COLONNES`, vide si la capture ne contient
     aucune requête DNS. Les réponses et le trafic non DNS sont ignorés.
     """
-    lignes = []
     with PcapReader(str(chemin)) as paquets:
-        for paquet in paquets:
-            if UDP not in paquet or paquet[UDP].dport != PORT_DNS:
-                continue
-            couche_ip = paquet[IP] if IP in paquet else paquet[IPv6] if IPv6 in paquet else None
-            if couche_ip is None:
-                continue
-            # octets bruts reçus, et non le DNS ré-encodé par scapy
-            dns = paquet[UDP].payload.original or b""
-            if not est_requete(dns):
-                continue
-            qname, qtype = lire_question(dns)
-            lignes.append((float(paquet.time), couche_ip.src, couche_ip.dst, qname, qtype))
-    return pd.DataFrame(lignes, columns=COLONNES).astype({"qtype": "Int64"})
+        requetes = [r for paquet in paquets if (r := requete_dns(paquet)) is not None]
+    return en_dataframe(requetes)
