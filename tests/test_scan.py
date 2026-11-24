@@ -1,23 +1,8 @@
-import pandas as pd
-import pytest
 from conftest import ecrire_pcap, noms_benins, noms_exfil, requete
 from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import Ether
 
 from exfildns.cli import domaine_parent, main
-from exfildns.features import features_dataframe
-from exfildns.model import entrainer_mlp, sauvegarder
-
-
-@pytest.fixture(scope="module")
-def modele(tmp_path_factory):
-    """Petit réseau entraîné sur des noms synthétiques (bénins / base64)."""
-    noms = noms_benins(300, graine=1) + noms_exfil(300, graine=1)
-    y = pd.Series([0] * 300 + [1] * 300)
-    reseau, _ = entrainer_mlp(features_dataframe(noms), y, epochs=30)
-    chemin = tmp_path_factory.mktemp("modele") / "exfildns.keras"
-    sauvegarder(reseau, chemin)
-    return chemin
 
 
 def test_scan_detecte_l_exfiltration(tmp_path, modele, capsys):
