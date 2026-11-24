@@ -28,7 +28,16 @@ LISTE_BLANCHE = (
     "1e100.net",
 )
 
-COLONNES_ALERTES = ["domaine", "requetes_suspectes", "score_moyen", "sources", "debut", "fin"]
+COLONNES_ALERTES = [
+    "domaine",
+    "requetes_suspectes",
+    "score_moyen",
+    "score_max",
+    "sources",
+    "postes",  # adresses des postes, séparées par des virgules
+    "debut",
+    "fin",
+]
 
 
 def domaine_parent(qname: str, tronque: bool = False) -> str:
@@ -79,7 +88,9 @@ def alertes(
         {
             "requetes_suspectes": groupes.size(),
             "score_moyen": groupes["score"].mean(),
+            "score_max": groupes["score"].max(),
             "sources": groupes["src"].nunique(),
+            "postes": groupes["src"].agg(lambda s: ", ".join(sorted(s.unique()))),
             "debut": groupes["timestamp"].min(),
             "fin": groupes["timestamp"].max(),
         }

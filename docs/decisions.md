@@ -119,3 +119,13 @@ la base restent en français, comme l'existant. Le `rcode` n'est pas enregistré
 voit que les requêtes, il faudrait capturer et apparier les réponses. Domaine parent = deux
 derniers labels (pas de Public Suffix List). Pas de SHAP : le modèle est un réseau Keras, il
 faudrait une dépendance lourde et charger TensorFlow dans le dashboard.
+
+## 2026-11-24 — Sévérité des alertes et état du capteur (affichage seulement)
+
+La file d'alertes trie par sévérité puis par dernière requête suspecte. Sévérité **haute** si
+l'alerte est nette (score max ≥ 0,9) et fournie (au moins deux fois le minimum de requêtes
+suspectes), **moyenne** si l'une des deux, **basse** sinon : une règle lisible à l'oral, qui ne
+change pas quelles alertes sont levées. Le capteur est jugé actif si la dernière requête a moins
+d'une minute, silencieux jusqu'à 5 minutes, inactif au-delà ; sans battement de cœur écrit par la
+capture, un réseau très calme le fait paraître silencieux. Les variations des chiffres clés
+comparent à la période précédente de même durée, et ne s'affichent pas si elle est vide.
