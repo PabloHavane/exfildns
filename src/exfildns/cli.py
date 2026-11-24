@@ -1,6 +1,7 @@
 """Point d'entrée en ligne de commande : `exfildns <commande>`."""
 
 import argparse
+import signal
 import sys
 from pathlib import Path
 
@@ -114,9 +115,11 @@ def commande_sniff(args) -> int:
         return 2
     modele = charger(args.modele)
     connexion = ouvrir_base(args.base)
+    # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     interface = args.interface or "l'interface par défaut"
     print(f"Capture DNS sur {interface}, requêtes enregistrées dans {args.base}.")
-    print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.")
+    print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.", flush=True)
     try:
         analysees, suspectes = surveiller(
             lots_reseau(args.interface), modele, connexion, args.seuil
