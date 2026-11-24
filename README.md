@@ -132,6 +132,10 @@ alertes, postes), alertes par domaine, activité DNS par minute, postes et serve
 requêtes suspectes les plus récentes. Seuil, nombre de requêtes pour une alerte et période se
 règlent dans la barre latérale ; la vue se rafraîchit toutes les 5 secondes.
 
+L'onglet **Analyser une capture** accepte un fichier `.pcap` / `.pcapng` et l'analyse comme
+`exfildns scan`, avec les mêmes vues (utile sans accès au réseau, ou pour rejouer une capture).
+Le modèle utilisé est `models/exfildns.keras`, ou celui de la variable `EXFILDNS_MODELE`.
+
 Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il peut tourner
 pendant la capture. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
