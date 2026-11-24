@@ -3,7 +3,6 @@
 import argparse
 import os
 import signal
-import subprocess
 import sys
 from pathlib import Path
 
@@ -141,7 +140,11 @@ def commande_sniff(args) -> int:
 
 
 def commande_dashboard(args) -> int:
-    """Lance le serveur Streamlit sur le dashboard, en lui passant la base et le modèle."""
+    """Remplace le processus par le serveur Streamlit du dashboard (base et modèle en variables).
+
+    `exec` plutôt qu'un sous-processus : Streamlit reçoit directement les signaux (Ctrl+C,
+    SIGTERM de `docker stop`) et s'arrête proprement.
+    """
     env = {
         **os.environ,
         "EXFILDNS_BASE": str(Path(args.base).resolve()),
@@ -156,10 +159,9 @@ def commande_dashboard(args) -> int:
     print(
         f"Dashboard : http://{args.adresse}:{args.port} (base {args.base}) ; Ctrl+C pour arrêter."
     )
-    try:
-        return subprocess.call(commande, env=env)
-    except KeyboardInterrupt:
-        return 0
+    sys.stdout.flush()
+    os.execvpe(commande[0], commande, env)
+    return 0  # jamais atteint (sauf quand exec est remplacé dans les tests)
 
 
 def build_parser() -> argparse.ArgumentParser:
