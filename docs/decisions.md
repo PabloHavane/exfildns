@@ -76,3 +76,11 @@ La capture demande root ou `CAP_NET_RAW` : elle tourne dans un processus à part
 qui écrit dans une base SQLite ; le dashboard Streamlit la lit sans privilège. SQLite est dans la
 bibliothèque standard et suffit pour un seul écrivain. Déploiement par Docker compose (deux
 services), relu par l'agent `relecteur-docker`.
+
+## 2026-11-24 — Alertes par domaine parent (≥ 5 requêtes suspectes) et liste blanche
+Le modèle juge chaque requête seule ; un tunnel, lui, envoie beaucoup de requêtes vers un même
+domaine. Une alerte n'est levée que si un domaine parent (deux derniers labels) reçoit au moins
+5 requêtes suspectes : un faux positif isolé (nom long d'un CDN) n'alerte pas. Une liste blanche
+(CDN et cloud connus, complétable par fichier) écarte les services légitimes. Les seuils seront
+ajustés sur le trafic réel du homelab (#42). Limite : « deux derniers labels » se trompe sur
+les suffixes comme `.co.uk`, sans gêner la détection d'un tunnel.
