@@ -19,13 +19,18 @@ from pathlib import Path
 import pandas as pd
 
 from exfildns import SEUIL
-from exfildns.alertes import MIN_REQUETES, alertes
+from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
 
 BASE_PAR_DEFAUT = "detections.db"
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
 CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
 RAFRAICHISSEMENT = 5  # secondes
+
+# Pas possibles entre deux graduations de la timeline, en minutes : on prend le plus petit qui
+# donne au plus `GRADUATIONS_MAX` libellés, pour qu'ils restent lisibles.
+PAS_GRADUATIONS = (1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440)
+GRADUATIONS_MAX = 12
 
 # Période affichée -> durée en secondes (None : toute la base)
 PERIODES = {
@@ -83,15 +88,54 @@ def indicateurs(requetes: pd.DataFrame, seuil: float, resume: pd.DataFrame) -> d
 
 
 def activite_par_minute(requetes: pd.DataFrame, seuil: float) -> pd.DataFrame:
-    """Nombre de requêtes bénignes et suspectes par minute (index : la minute)."""
+    """Nombre de requêtes bénignes et suspectes par minute (index : la minute).
+
+    Grille fixe d'une minute, de la première à la dernière requête : une minute sans trafic
+    apparaît avec 0 requête au lieu de disparaître du graphique.
+    """
     if requetes.empty:
         return pd.DataFrame(columns=["bénignes", "suspectes"])
     minute = en_heure(requetes["timestamp"]).dt.floor("min")
     classe = (requetes["score"] >= seuil).map({False: "bénignes", True: "suspectes"})
     activite = pd.crosstab(minute, classe).reindex(columns=["bénignes", "suspectes"], fill_value=0)
+    grille = pd.date_range(minute.min(), minute.max(), freq="min")
+    activite = activite.reindex(grille, fill_value=0)
     activite.index.name = "minute"
     activite.columns.name = None
     return activite
+
+
+def instants_alertes(
+    requetes: pd.DataFrame,
+    seuil: float,
+    min_requetes: int,
+    liste_blanche=LISTE_BLANCHE,
+) -> pd.DataFrame:
+    """Instant où chaque alerte est levée : l'arrivée de sa `min_requetes`-ième requête suspecte.
+
+    Mêmes règles que `alertes` (domaine parent, liste blanche) ; colonnes `domaine, instant`
+    (timestamp Unix), une ligne par alerte, dans l'ordre chronologique.
+    """
+    liste_blanche = list(liste_blanche)
+    suspectes = requetes[requetes["score"] >= seuil]
+    if suspectes.empty:  # une liste vide sélectionnerait des colonnes, pas des lignes
+        return pd.DataFrame(columns=["domaine", "instant"])
+    suspectes = suspectes[[not est_autorise(q, liste_blanche) for q in suspectes["qname"]]]
+    domaines = [
+        domaine_parent(q, pd.isna(t))
+        for q, t in zip(suspectes["qname"], suspectes["qtype"], strict=True)
+    ]
+    suspectes = suspectes.assign(domaine=domaines).sort_values("timestamp")
+    rang = suspectes.groupby("domaine").cumcount()  # 0 pour la 1re requête suspecte du domaine
+    levees = suspectes[rang == min_requetes - 1]
+    return pd.DataFrame(
+        {"domaine": levees["domaine"].to_numpy(), "instant": levees["timestamp"].to_numpy()}
+    )
+
+
+def pas_graduations(minutes: int) -> int:
+    """Écart en minutes entre deux graduations pour une timeline de `minutes` minutes."""
+    return next((p for p in PAS_GRADUATIONS if minutes / p <= GRADUATIONS_MAX), PAS_GRADUATIONS[-1])
 
 
 def classement(suspectes: pd.DataFrame, colonne: str, libelle: str, n: int = 10) -> pd.DataFrame:
@@ -100,22 +144,38 @@ def classement(suspectes: pd.DataFrame, colonne: str, libelle: str, n: int = 10)
     return compte.rename_axis(libelle).reset_index(name="requêtes suspectes")
 
 
-def graphique_activite(activite: pd.DataFrame):
+def graphique_activite(activite: pd.DataFrame, instants: pd.DataFrame | None = None):
     """Barres empilées bénignes / suspectes par minute, sans zoom à la molette.
 
     Le graphique par défaut de Streamlit est zoomable : la molette le zoomait au lieu de faire
     défiler la page. Un graphique Altair sans `.interactive()` reste fixe.
+    Graduations données explicitement, une toutes les `pas_graduations` minutes : laissé libre,
+    Vega en place toutes les 10-30 s et le format `%H:%M` répète le même libellé (et le
+    `tickCount` par intervalle n'est pas pris en charge par le Vega de Streamlit).
+    Les instants où une alerte est levée (`instants_alertes`) sont marqués d'un trait vertical.
     """
     import altair as alt
 
     donnees = activite.reset_index().melt("minute", var_name="classe", value_name="requêtes")
     couleurs = alt.Scale(domain=["bénignes", "suspectes"], range=["#4c78a8", "#e45756"])
-    return (
+    # en date et heure locales (comme `en_heure`) : Vega n'affiche pas de graduations données
+    # en millisecondes sur ce graphique
+    graduations = [
+        alt.DateTime(year=m.year, month=m.month, date=m.day, hours=m.hour, minutes=m.minute)
+        for m in activite.index[:: pas_graduations(len(activite))]
+    ]
+    barres = (
         alt.Chart(donnees)
         .mark_bar()
         .encode(
+            # timeUnit à la minute : chaque barre occupe toute sa minute sur l'axe temporel ;
             # format 24 h : par défaut, Vega affiche 03:31 pour 15:31 (12 h sans AM/PM)
-            x=alt.X("minute:T", title=None, axis=alt.Axis(format="%H:%M")),
+            x=alt.X(
+                "minute:T",
+                timeUnit="yearmonthdatehoursminutes",
+                title=None,
+                axis=alt.Axis(format="%H:%M", values=graduations, labelOverlap=True),
+            ),
             y=alt.Y("requêtes:Q", stack=True),
             color=alt.Color(
                 "classe:N", scale=couleurs, legend=alt.Legend(title=None, orient="top")
@@ -123,6 +183,20 @@ def graphique_activite(activite: pd.DataFrame):
             tooltip=[alt.Tooltip("minute:T", format="%H:%M"), "classe:N", "requêtes:Q"],
         )
     )
+    if instants is None or instants.empty:
+        return barres
+    marqueurs = (
+        alt.Chart(instants.assign(instant=en_heure(instants["instant"])))
+        .mark_rule(color="#b30000", strokeDash=[4, 3], strokeWidth=2)
+        .encode(
+            x="instant:T",
+            tooltip=[
+                alt.Tooltip("domaine:N", title="alerte"),
+                alt.Tooltip("instant:T", title="levée à", format="%H:%M:%S"),
+            ],
+        )
+    )
+    return barres + marqueurs
 
 
 def tableau_alertes(resume: pd.DataFrame) -> pd.DataFrame:
@@ -200,7 +274,10 @@ def afficher_resultats(st, requetes: pd.DataFrame, seuil: float, min_requetes: i
         )
 
     st.subheader("Activité DNS par minute")
-    st.altair_chart(graphique_activite(activite_par_minute(requetes, seuil)), width="stretch")
+    graphique = graphique_activite(
+        activite_par_minute(requetes, seuil), instants_alertes(requetes, seuil, min_requetes)
+    )
+    st.altair_chart(graphique, width="stretch")
 
     if suspectes.empty:
         return

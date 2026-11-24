@@ -22,7 +22,9 @@ from exfildns.dashboard import (
     en_heure,
     graphique_activite,
     indicateurs,
+    instants_alertes,
     lire_requetes,
+    pas_graduations,
     tableau_alertes,
     tableau_requetes,
 )
@@ -196,6 +198,29 @@ def test_activite_par_minute_sans_suspecte():
     requetes = pd.DataFrame({"timestamp": [0.0], "score": [0.1], "src": ["a"]})
 
     assert activite_par_minute(requetes, 0.5)["suspectes"].tolist() == [0]
+
+
+def test_activite_par_minute_minutes_sans_trafic_a_zero():
+    requetes = pd.DataFrame({"timestamp": [0.0, 185.0], "score": [0.9, 0.1], "src": ["a"] * 2})
+
+    activite = activite_par_minute(requetes, 0.5)
+
+    assert len(activite) == 4  # minutes 0, 1, 2, 3 : aucune ne manque
+    assert (activite.index.to_series().diff().dropna() == pd.Timedelta(minutes=1)).all()
+    assert activite["bénignes"].tolist() == [0, 0, 0, 1]
+    assert activite["suspectes"].tolist() == [1, 0, 0, 0]
+
+
+def test_activite_par_minute_une_ligne_par_minute():
+    """Le bug d'origine : des requêtes d'une même minute ne donnent qu'une seule ligne."""
+    requetes = pd.DataFrame(
+        {"timestamp": [60.0 + i for i in range(0, 60, 5)], "score": [0.1] * 12, "src": ["a"] * 12}
+    )
+
+    activite = activite_par_minute(requetes, 0.5)
+
+    assert len(activite) == 1
+    assert activite["bénignes"].tolist() == [12]
 
 
 def test_activite_par_minute_vide():
@@ -514,3 +539,91 @@ def test_graphique_activite_fixe_et_empile():
     assert spec["encoding"]["color"]["scale"]["domain"] == ["bénignes", "suspectes"]
     assert "params" not in spec  # pas de sélection ni de zoom (.interactive() absent)
     assert len(spec["datasets"][spec["data"]["name"]]) == 4  # 2 minutes x 2 classes
+
+
+def suspectes_vers(domaine, instants, qtype=16, score=0.9):
+    return [
+        {"timestamp": t, "src": "a", "qname": f"{i}x.{domaine}", "qtype": qtype, "score": score}
+        for i, t in enumerate(instants)
+    ]
+
+
+def test_instants_alertes_a_la_n_ieme_requete_suspecte():
+    requetes = pd.DataFrame(
+        suspectes_vers("pirate.example", [10.0, 30.0, 20.0, 40.0])
+        + suspectes_vers("autre.example", [5.0, 6.0])
+        + suspectes_vers("calme.example", [1.0, 2.0, 3.0], score=0.1)
+    )
+
+    instants = instants_alertes(requetes, seuil=0.5, min_requetes=3)
+
+    # 3e requête suspecte dans l'ordre du temps (10, 20, 30), pas dans l'ordre des lignes
+    assert instants.to_dict("records") == [{"domaine": "pirate.example", "instant": 30.0}]
+
+
+def test_instants_alertes_memes_alertes_que_le_resume(base_demo):
+    requetes = lire_requetes(base_demo)
+
+    instants = instants_alertes(requetes, 0.5, 5)
+
+    assert sorted(instants["domaine"]) == sorted(alertes(requetes, 0.5, 5)["domaine"])
+
+
+def test_instants_alertes_liste_blanche_et_nom_tronque():
+    requetes = pd.DataFrame(
+        suspectes_vers("cloudfront.net", [1.0, 2.0]) + suspectes_vers("coupe", [3.0, 4.0], None)
+    )
+
+    instants = instants_alertes(requetes, 0.5, 2, liste_blanche=["cloudfront.net"])
+
+    assert instants["domaine"].tolist() == ["(nom incomplet dans la capture)"]
+
+
+def test_instants_alertes_sans_suspecte():
+    requetes = pd.DataFrame(suspectes_vers("calme.example", [1.0], score=0.1))
+
+    assert instants_alertes(requetes, 0.5, 1).empty
+    assert instants_alertes(requetes.iloc[:0], 0.5, 1).empty
+
+
+@pytest.mark.parametrize(
+    ("minutes", "pas"), [(1, 1), (12, 1), (13, 2), (60, 5), (24 * 60, 120), (10**6, 1440)]
+)
+def test_pas_graduations(minutes, pas):
+    assert pas_graduations(minutes) == pas
+
+
+def test_graphique_activite_graduations_a_la_minute():
+    activite = activite_par_minute(
+        pd.DataFrame({"timestamp": [0.0, 125.0], "score": [0.1, 0.9], "src": ["a"] * 2}), 0.5
+    )
+
+    x = graphique_activite(activite).to_dict()["encoding"]["x"]
+
+    assert x["type"] == "temporal"
+    assert x["timeUnit"] == "yearmonthdatehoursminutes"  # une barre = une minute
+    # une graduation par minute, alignée sur la minute (l'heure dépend du fuseau de la machine)
+    assert [v["minutes"] for v in x["axis"]["values"]] == [0, 1, 2]
+
+
+def test_graphique_activite_marqueurs_d_alerte():
+    activite = activite_par_minute(
+        pd.DataFrame({"timestamp": [0.0, 125.0], "score": [0.1, 0.9], "src": ["a"] * 2}), 0.5
+    )
+    instants = pd.DataFrame({"domaine": ["pirate.example"], "instant": [100.0]})
+
+    spec = graphique_activite(activite, instants).to_dict()
+
+    barres, marqueurs = spec["layer"]
+    assert barres["mark"]["type"] == "bar"
+    assert marqueurs["mark"]["type"] == "rule"
+    assert len(spec["datasets"][marqueurs["data"]["name"]]) == 1
+
+
+def test_graphique_activite_sans_alerte_pas_de_marqueur():
+    activite = activite_par_minute(
+        pd.DataFrame({"timestamp": [0.0], "score": [0.1], "src": ["a"]}), 0.5
+    )
+    vide = pd.DataFrame(columns=["domaine", "instant"])
+
+    assert "layer" not in graphique_activite(activite, vide).to_dict()
