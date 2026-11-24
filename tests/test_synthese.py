@@ -6,15 +6,20 @@ import pandas as pd
 import pytest
 
 from exfildns.alertes import alertes
+from exfildns.detail import nom_qtype
 from exfildns.synthese import (
     duree_lisible,
     ecarts,
     echapper_markdown,
     etat_capteur,
     file_alertes,
+    histogramme_scores,
     indicateurs,
     infos_modele,
+    repartition_qtypes,
     severite,
+    top_domaines,
+    top_postes,
 )
 
 
@@ -187,3 +192,69 @@ def test_echapper_markdown():
     assert echapper_markdown("a\n\nb") == "a\\\\x0a\\\\x0ab"
     assert echapper_markdown(":red-badge[x]") == "\\:red\\-badge\\[x\\]"
     assert echapper_markdown("é\xff") == "\\\\xe9\\\\xff"  # octets latin-1 du réseau
+
+
+# --- panneaux « top » et histogramme ---
+
+
+@pytest.fixture
+def trafic():
+    return requetes(
+        ("a", "www.site.fr", 1, 0.1),
+        ("a", "mail.site.fr", 15, 0.2),
+        ("b", "www.site.fr", 28, 0.1),
+        ("c", "x1.pirate.example", 16, 0.95),
+        ("c", "x2.pirate.example", 16, 0.85),
+        ("b", "rare.example", 1, 0.99),
+    )
+
+
+def test_top_domaines_par_volume(trafic):
+    top = top_domaines(trafic, 0.5)
+
+    assert top["domaine"].tolist() == ["site.fr", "pirate.example", "rare.example"]
+    assert top["requêtes"].tolist() == [3, 2, 1]
+    assert top["suspectes"].tolist() == [0, 2, 1]
+    assert top.loc[1, "score moyen"] == pytest.approx(0.9)
+
+
+def test_top_domaines_par_score(trafic):
+    top = top_domaines(trafic, 0.5, tri="score")
+
+    assert top["domaine"].tolist() == ["rare.example", "pirate.example", "site.fr"]
+
+
+def test_top_domaines_limite_et_nom_tronque(trafic):
+    lot = pd.concat([trafic, requetes(("d", "coupe", None, 0.7))], ignore_index=True)
+
+    assert len(top_domaines(lot, 0.5, n=2)) == 2
+    assert "(nom incomplet dans la capture)" in top_domaines(lot, 0.5)["domaine"].tolist()
+
+
+def test_top_postes(trafic):
+    top = top_postes(trafic, 0.5)
+
+    # c : 2 suspectes ; b : 1 suspecte ; a : aucune
+    assert top["poste"].tolist() == ["c", "b", "a"]
+    assert top["suspectes"].tolist() == [2, 1, 0]
+    assert top.loc[1, "score max"] == 0.99
+
+
+def test_repartition_qtypes(trafic):
+    repartition = repartition_qtypes(trafic, nom_qtype)
+
+    assert repartition.values.tolist() == [["A", 2], ["TXT", 2], ["MX", 1], ["AAAA", 1]]
+
+
+def test_histogramme_scores_bornes():
+    histogramme = histogramme_scores(pd.Series([0.0, 0.049, 0.05, 0.5, 0.95, 0.99, 1.0]))
+
+    assert len(histogramme) == 20
+    assert histogramme["requêtes"].sum() == 7  # 1.0 compté dans la dernière tranche
+    par_debut = dict(zip(histogramme["début"], histogramme["requêtes"], strict=True))
+    assert par_debut[0.0] == 2 and par_debut[0.05] == 1
+    assert par_debut[0.95] == 3  # 0.95 exactement : pas d'erreur d'arrondi
+
+
+def test_histogramme_scores_vide():
+    assert histogramme_scores(pd.Series([], dtype=float))["requêtes"].sum() == 0
