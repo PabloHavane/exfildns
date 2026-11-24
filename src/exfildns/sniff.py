@@ -5,15 +5,14 @@ seule la capture demande root ou la capacité `CAP_NET_RAW` (docs/decisions.md).
 Le décodage des paquets et le calcul des features sont ceux de l'analyse d'un fichier PCAP.
 """
 
+import select
 import sqlite3
+import time
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 import pandas as pd
-from scapy.all import (  # scapy.all charge les sockets de capture et l'interface par défaut
-    conf,
-    sniff,
-)
+from scapy.all import conf  # scapy.all charge les sockets de capture et l'interface par défaut
 
 from exfildns.features import features_dataframe
 from exfildns.model import predire_proba
@@ -70,7 +69,7 @@ def surveiller(
     modele,
     connexion: sqlite3.Connection,
     seuil: float,
-    afficher: Callable[[str], None] = print,
+    afficher: Callable[[str], None] = lambda ligne: print(ligne, flush=True),
 ) -> tuple[int, int]:
     """Note et enregistre chaque lot de paquets ; affiche les requêtes suspectes au fil de l'eau.
 
@@ -97,12 +96,24 @@ def surveiller(
 def lots_reseau(interface: str | None = None, duree_lot: float = 1.0) -> Iterator[list]:
     """Paquets DNS capturés sur `interface` (par défaut celle de scapy), par lots de `duree_lot` s.
 
-    Le socket est ouvert une seule fois : aucun paquet n'est perdu entre deux lots.
-    Lève `PermissionError` sans root ni `CAP_NET_RAW`.
+    Le socket est ouvert une seule fois : aucun paquet n'est perdu entre deux lots. Il est lu
+    directement plutôt qu'avec `scapy.sniff`, qui avalerait Ctrl+C au lieu de le transmettre.
+    Lève `PermissionError` sans root ni `CAP_NET_RAW`, `ValueError` si l'interface n'existe pas.
     """
-    socket = conf.L2listen(iface=interface or conf.iface, filter=FILTRE_BPF)
+    interface = interface or conf.iface
+    filtre = FILTRE_BPF
+    if interface == "lo":  # bouclage : chaque paquet est vu en sortie puis en entrée
+        filtre = f"inbound and {filtre}"
+    socket = conf.L2listen(iface=interface, filter=filtre)
     try:
         while True:
-            yield list(sniff(opened_socket=socket, timeout=duree_lot))
+            lot = []
+            fin = time.monotonic() + duree_lot
+            while (reste := fin - time.monotonic()) > 0:
+                if select.select([socket], [], [], reste)[0]:
+                    paquet = socket.recv()
+                    if paquet is not None:
+                        lot.append(paquet)
+            yield lot
     finally:
         socket.close()
