@@ -386,22 +386,26 @@ def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) ->
     afficher_resultats(st, requetes, seuil, min_requetes)
 
 
-def requetes_figees(st, base: str, periode: str) -> pd.DataFrame:
-    """Requêtes de la période, relues seulement sur « Actualiser » ou si la période change.
+def requetes_figees(st, base: str, periode: str, seuil: float) -> pd.DataFrame:
+    """Tableau détaillé des requêtes de la période, relu seulement sur « Actualiser » ou si la
+    période change.
 
     Sans cela, chaque clic relirait la base : de nouvelles lignes décaleraient le tableau et
-    la ligne sélectionnée désignerait une autre requête.
+    la ligne sélectionnée désignerait une autre requête. Les features (coûteuses) sont calculées
+    à la lecture ; seul le verdict, qui dépend du seuil, est recalculé à chaque exécution.
+    `requetes_version` augmente à chaque lecture : il entre dans la clé du tableau affiché.
     """
     cle = (base, periode)
     actualiser = st.button("Actualiser", icon=":material/refresh:", key="actualiser_requetes")
     if actualiser or st.session_state.get("requetes_cle") != cle:
         duree = PERIODES[periode]
+        requetes = lire_requetes(base, None if duree is None else time.time() - duree)
         st.session_state["requetes_cle"] = cle
-        st.session_state["requetes_figees"] = lire_requetes(
-            base, None if duree is None else time.time() - duree
-        )
+        st.session_state["requetes_figees"] = detail.tableau_detaille(requetes, seuil)
         st.session_state["requetes_lues_a"] = datetime.now().strftime("%H:%M:%S")
-    return st.session_state["requetes_figees"]
+        st.session_state["requetes_version"] = st.session_state.get("requetes_version", 0) + 1
+    tableau = st.session_state["requetes_figees"]
+    return tableau.assign(verdict=detail.verdicts(tableau["score"], seuil))
 
 
 def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame) -> None:
@@ -505,12 +509,11 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
     if not Path(base).exists():
         st.info(f"Aucune base de détections ({base}).")
         return
-    requetes = requetes_figees(st, base, periode)
+    tableau = requetes_figees(st, base, periode, seuil)
     st.caption(f"Période : {periode}, lue à {st.session_state['requetes_lues_a']}.")
-    if requetes.empty:
+    if tableau.empty:
         st.info("Aucune requête DNS sur la période.")
         return
-    tableau = detail.tableau_detaille(requetes, seuil)
 
     colonnes = st.columns([2, 2, 2, 2, 3])
     postes = colonnes[0].multiselect(
@@ -527,13 +530,13 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
     )
     score_min = colonnes[3].slider("Score minimum", 0.0, 1.0, 0.0, 0.05, key="f_score")
     texte = colonnes[4].text_input("Rechercher dans le nom", key="f_texte")
-    vue = detail.filtrer(tableau, postes, domaines, verdicts, score_min, texte)
-    vue = vue.sort_values("timestamp", ascending=False).head(LIGNES_MAX)
+    filtrees = detail.filtrer(tableau, postes, domaines, verdicts, score_min, texte)
+    vue = filtrees.sort_values("timestamp", ascending=False).head(LIGNES_MAX)
 
     gauche, milieu, droite = st.columns([6, 1, 1])
     gauche.caption(
         f"{len(vue)} requête(s) affichée(s) sur {len(tableau)}"
-        + (f" (les {LIGNES_MAX} plus récentes)" if len(vue) == LIGNES_MAX else "")
+        + (f" (les {LIGNES_MAX} plus récentes)" if len(filtrees) > LIGNES_MAX else "")
     )
     milieu.download_button(
         "CSV", detail.exporter(vue, "csv"), "requetes.csv", "text/csv", on_click="ignore"
@@ -545,9 +548,11 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
         "application/json",
         on_click="ignore",
     )
-    # une clé par jeu de filtres : changer un filtre efface la sélection au lieu de la reporter
-    # sur la ligne qui occupe désormais la même position
-    filtres = repr((postes, domaines, verdicts, score_min, texte, seuil))
+    # une clé par jeu de filtres et par lecture de la base : Streamlit garde la sélection (une
+    # position) quand les données changent ; changer de clé l'efface au lieu de la reporter sur
+    # la ligne qui occupe désormais la même position
+    version = st.session_state["requetes_version"]
+    filtres = repr((postes, domaines, verdicts, score_min, texte, seuil, version))
     selection = st.dataframe(
         tableau_affiche(vue),
         key=f"table_requetes_{zlib.crc32(filtres.encode())}",
@@ -560,13 +565,19 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
             "heure": st.column_config.DatetimeColumn(format="DD/MM HH:mm:ss"),
             "taille": st.column_config.NumberColumn(help="octets du message DNS"),
             "sous-domaine": st.column_config.NumberColumn(
-                help="caractères avant le domaine parent"
+                help="caractères avant le domaine parent, sur le nom complet"
             ),
-            "entropie": st.column_config.NumberColumn(format="%.2f", help="bits par caractère"),
+            "entropie": st.column_config.NumberColumn(
+                format="%.2f",
+                help="bits par caractère, sur les 40 premiers caractères (comme le modèle)",
+            ),
+            "labels": st.column_config.NumberColumn(
+                help="sur les 40 premiers caractères (comme le modèle)"
+            ),
             "score": st.column_config.ProgressColumn(min_value=0.0, max_value=1.0, format="%.3f"),
         },
     )
-    lignes = selection.selection.rows
+    lignes = [i for i in selection.selection.rows if i < len(vue)]
     if not lignes:
         st.caption("Sélectionner une ligne pour afficher son détail.")
         return

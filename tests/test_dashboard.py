@@ -876,3 +876,16 @@ def test_afficher_detail_echappe_un_nom_malveillant(tmp_path):
     rendu = "".join(m.value for m in at.markdown)
     assert "<img" not in rendu
     assert "&lt;img src=x onerror=alert(1)&gt;" in rendu
+
+
+def test_app_onglet_requetes_cle_du_tableau_change_a_chaque_lecture(base_demo, monkeypatch):
+    """Streamlit garde la sélection (une position) si la clé ne change pas : après une relecture,
+    elle désignerait une autre requête."""
+    at = app(base_demo, monkeypatch).run()
+    avant = onglet_requetes(at).dataframe[0].key
+
+    at.text_input(key="f_texte").set_value("").run()
+    assert onglet_requetes(at).dataframe[0].key == avant  # simple interaction : même sélection
+
+    at.button(key="actualiser_requetes").click().run()
+    assert onglet_requetes(at).dataframe[0].key != avant

@@ -9,6 +9,7 @@ ou en ASCII échappé.
 import base64
 import binascii
 import html
+from collections.abc import Sequence
 
 import pandas as pd
 
@@ -32,6 +33,8 @@ QTYPES = {
 }
 VERDICTS = ["suspecte", "bénigne"]
 OCTETS_AFFICHES = 64  # au-delà, le décodage est tronqué à l'affichage
+# Début de cellule qu'un tableur prendrait pour une formule (injection CSV)
+DEBUTS_FORMULE = ("=", "+", "-", "@", "\t", "\r")
 
 
 def nom_qtype(qtype) -> str:
@@ -47,6 +50,11 @@ def sous_domaine(qname: str, tronque: bool = False) -> str:
         return qname.rstrip(".")
     labels = qname.rstrip(".").split(".")
     return ".".join(labels[:-2])
+
+
+def verdicts(scores: pd.Series, seuil: float) -> list[str]:
+    """`suspecte` si score >= seuil (même règle que le reste de l'application), sinon `bénigne`."""
+    return [VERDICTS[0] if s >= seuil else VERDICTS[1] for s in scores]
 
 
 def tableau_detaille(requetes: pd.DataFrame, seuil: float) -> pd.DataFrame:
@@ -71,9 +79,7 @@ def tableau_detaille(requetes: pd.DataFrame, seuil: float) -> pd.DataFrame:
                         len(sous_domaine(q, t))
                         for q, t in zip(requetes["qname"], tronques, strict=True)
                     ],
-                    "verdict": [
-                        VERDICTS[0] if s >= seuil else VERDICTS[1] for s in requetes["score"]
-                    ],
+                    "verdict": verdicts(requetes["score"], seuil),
                 },
                 index=requetes.index,
             ),
@@ -85,9 +91,9 @@ def tableau_detaille(requetes: pd.DataFrame, seuil: float) -> pd.DataFrame:
 
 def filtrer(
     tableau: pd.DataFrame,
-    postes: list[str] = (),
-    domaines: list[str] = (),
-    verdicts: list[str] = (),
+    postes: Sequence[str] = (),
+    domaines: Sequence[str] = (),
+    verdicts: Sequence[str] = (),
     score_min: float = 0.0,
     texte: str = "",
 ) -> pd.DataFrame:
@@ -110,22 +116,29 @@ def filtrer(
 def qname_html(qname: str, tronque: bool = False) -> str:
     """Le nom découpé label par label, sous-domaine mis en évidence, **échappé** pour le HTML.
 
-    Le nom vient du réseau : sans échappement, un label `<script>` serait interprété.
+    Le nom vient du réseau et un label peut contenir n'importe quel octet : chaque label passe
+    par `ascii_echappe` (un saut de ligne ne peut plus fermer le bloc HTML et laisser le reste
+    être lu comme du Markdown, image ou lien) puis par `html.escape` (`<script>`…).
     """
     nom = qname.rstrip(".")
     sous = sous_domaine(qname, tronque)
     parent = nom[len(sous) :].lstrip(".") if sous else nom
     morceaux = [
-        f'<span class="label suspect">{html.escape(label)}</span>'
+        f'<span class="label suspect">{_label_sur(label)}</span>'
         for label in sous.split(".")
         if label
     ]
     morceaux += [
-        f'<span class="label parent">{html.escape(label)}</span>'
+        f'<span class="label parent">{_label_sur(label)}</span>'
         for label in parent.split(".")
         if label
     ]
     return '<span class="point">.</span>'.join(morceaux)
+
+
+def _label_sur(label: str) -> str:
+    """Label affichable sans risque dans du HTML rendu par `st.markdown`."""
+    return html.escape(ascii_echappe(label.encode("latin-1", errors="backslashreplace")))
 
 
 def comparaison_features(ligne: pd.Series, reference: pd.DataFrame) -> pd.DataFrame:
@@ -211,6 +224,10 @@ def exporter(tableau: pd.DataFrame, format_: str) -> str:
         )
     )
     if format_ == "csv":
+        # un nom qui commence par `=` serait exécuté comme une formule à l'ouverture du CSV
+        sortie = sortie.map(
+            lambda v: "'" + v if isinstance(v, str) and v.startswith(DEBUTS_FORMULE) else v
+        )
         return sortie.to_csv(index=False)
     if format_ == "json":
         return sortie.to_json(orient="records", force_ascii=False, indent=2)

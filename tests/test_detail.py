@@ -259,3 +259,20 @@ def test_exporter_vide_et_format_inconnu(tableau):
     assert json.loads(exporter(tableau.iloc[:0], "json")) == []
     with pytest.raises(ValueError, match="inconnu"):
         exporter(tableau, "xml")
+
+
+def test_qname_html_caracteres_de_controle_echappes():
+    """Un saut de ligne fermerait le bloc HTML : la suite serait lue comme du Markdown."""
+    rendu = qname_html("a\n\n![x](http://e/pixel).evil.com")
+
+    assert "\n" not in rendu
+    assert "\\x0a\\x0a![x](http://e/pixel)" in rendu  # visible, mais inerte dans un <span>
+
+
+def test_exporter_csv_neutralise_les_formules(tableau):
+    piege = tableau.iloc[:1].assign(qname='=HYPERLINK("http://e").evil.com', src="+10.0.0.1")
+
+    texte = exporter(piege, "csv")
+
+    assert "'=HYPERLINK" in texte and "'+10.0.0.1" in texte
+    assert json.loads(exporter(piege, "json"))[0]["qname"].startswith("=")  # JSON : tel quel
