@@ -114,7 +114,8 @@ def graphique_activite(activite: pd.DataFrame):
         alt.Chart(donnees)
         .mark_bar()
         .encode(
-            x=alt.X("minute:T", title=None),
+            # format 24 h : par défaut, Vega affiche 03:31 pour 15:31 (12 h sans AM/PM)
+            x=alt.X("minute:T", title=None, axis=alt.Axis(format="%H:%M")),
             y=alt.Y("requêtes:Q", stack=True),
             color=alt.Color(
                 "classe:N", scale=couleurs, legend=alt.Legend(title=None, orient="top")

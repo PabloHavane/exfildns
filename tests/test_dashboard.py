@@ -509,6 +509,7 @@ def test_graphique_activite_fixe_et_empile():
     spec = graphique_activite(activite).to_dict()
 
     assert spec["mark"]["type"] == "bar"
+    assert spec["encoding"]["x"]["axis"]["format"] == "%H:%M"  # 24 h, pas 03:31 pour 15:31
     assert spec["encoding"]["y"]["stack"] is True
     assert spec["encoding"]["color"]["scale"]["domain"] == ["bénignes", "suspectes"]
     assert "params" not in spec  # pas de sélection ni de zoom (.interactive() absent)
