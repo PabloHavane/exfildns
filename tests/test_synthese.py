@@ -177,6 +177,7 @@ def test_infos_modele_change_avec_le_fichier(tmp_path):
 
 def test_infos_modele_absent(tmp_path):
     assert infos_modele(tmp_path / "absent.keras") == "modèle absent"
+    assert infos_modele(tmp_path) == "modèle absent"  # un dossier ne fait pas planter le bandeau
 
 
 def test_echapper_markdown():
@@ -185,3 +186,4 @@ def test_echapper_markdown():
     assert echapper_markdown("**gras**") == "\\*\\*gras\\*\\*"
     assert echapper_markdown("a\n\nb") == "a\\\\x0a\\\\x0ab"
     assert echapper_markdown(":red-badge[x]") == "\\:red\\-badge\\[x\\]"
+    assert echapper_markdown("é\xff") == "\\\\xe9\\\\xff"  # octets latin-1 du réseau

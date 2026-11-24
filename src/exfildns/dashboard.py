@@ -31,7 +31,6 @@ RAFRAICHISSEMENT = 5  # secondes
 ALERTES_MAX = 20  # cartes affichées dans la file d'alertes
 LIGNES_MAX = 5000  # requêtes affichées dans l'onglet « Requêtes » (les plus récentes)
 
-# Mise en évidence du nom découpé label par label (onglet « Requêtes »)
 # Bandeau d'état (une ligne, en tête de page)
 STYLE_BANDEAU = """<style>
 .bandeau { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.2rem;
@@ -43,6 +42,7 @@ STYLE_BANDEAU = """<style>
 </style>"""
 COULEURS_CAPTEUR = {"green": "#2ca02c", "orange": "#ff9f1c", "red": "#e45756"}
 
+# Mise en évidence du nom découpé label par label (onglet « Requêtes »)
 STYLE_QNAME = """<style>
 .qname { font-family: monospace; font-size: 1.1rem; line-height: 2.2; word-break: break-all; }
 .qname .label { padding: 0.15rem 0.4rem; border-radius: 0.3rem; }
@@ -331,7 +331,8 @@ def afficher_indicateurs(st, chiffres: dict, variations: dict) -> None:
         return None if v is None else format_.format(v)
 
     colonnes = st.columns(8)
-    colonnes[0].metric("Analysées", chiffres["analysees"], ecart("analysees"))
+    # volumes : une hausse n'est ni bonne ni mauvaise en soi, variation en gris
+    colonnes[0].metric("Analysées", chiffres["analysees"], ecart("analysees"), delta_color="off")
     colonnes[1].metric(
         "Suspectes", chiffres["suspectes"], ecart("suspectes"), delta_color="inverse"
     )
@@ -348,8 +349,10 @@ def afficher_indicateurs(st, chiffres: dict, variations: dict) -> None:
         delta_color="inverse",
         help="Toutes les alertes de la période (pas encore de statut).",
     )
-    colonnes[4].metric("Postes", chiffres["postes"], ecart("postes"))
-    colonnes[5].metric("Domaines parents", chiffres["domaines"], ecart("domaines"))
+    colonnes[4].metric("Postes", chiffres["postes"], ecart("postes"), delta_color="off")
+    colonnes[5].metric(
+        "Domaines parents", chiffres["domaines"], ecart("domaines"), delta_color="off"
+    )
     score_max = chiffres["score_max"]
     colonnes[6].metric(
         "Score max",

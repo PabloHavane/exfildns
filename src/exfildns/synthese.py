@@ -109,9 +109,13 @@ def duree_lisible(secondes: float) -> str:
 
 
 def infos_modele(chemin: str | Path) -> str:
-    """`exfildns.keras · 24/11 14:02 · a1b2c3d4` (nom, date du fichier, début de son SHA-256)."""
+    """`exfildns.keras · 24/11 14:02 · a1b2c3d4` (nom, date du fichier, début de son SHA-256).
+
+    C'est le fichier sur disque : si on le remplace sans relancer la capture, celle-ci note
+    encore avec l'ancien modèle.
+    """
     chemin = Path(chemin)
-    if not chemin.exists():
+    if not chemin.is_file():
         return "modèle absent"
     date = chemin.stat().st_mtime
     return _infos_modele(str(chemin), date)
