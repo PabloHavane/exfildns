@@ -66,6 +66,9 @@ def commande_evaluate(args) -> int:
 
 
 def commande_scan(args) -> int:
+    liste_blanche = list(LISTE_BLANCHE)
+    if args.liste_blanche:  # lu d'abord : un chemin erroné est signalé avant la longue analyse
+        liste_blanche += lire_liste_blanche(args.liste_blanche)
     requetes = read_dns_queries(args.capture)
     if requetes.empty:
         print(f"Aucune requête DNS dans {args.capture}.")
@@ -87,9 +90,6 @@ def commande_scan(args) -> int:
     print("\nServeurs DNS destinataires des requêtes suspectes :")
     for serveur, nombre in suspectes["dst"].value_counts().head(5).items():
         print(f"  {serveur:<40} {nombre}")
-    liste_blanche = list(LISTE_BLANCHE)
-    if args.liste_blanche:
-        liste_blanche += lire_liste_blanche(args.liste_blanche)
     resume = alertes(requetes, args.seuil, args.min_requetes, liste_blanche)
     print(
         f"\nAlertes : domaines ayant reçu au moins {args.min_requetes} requêtes suspectes "
@@ -101,7 +101,7 @@ def commande_scan(args) -> int:
     print(f"\nRequêtes suspectes ({min(args.max, len(suspectes))} plus probables) :")
     for r in suspectes.head(args.max).itertuples():
         print(f"  {r.score:.3f}  {r.src} -> {r.dst}  {r.qname}")
-    return 1
+    return 1 if len(resume) else 0
 
 
 def commande_sniff(args) -> int:

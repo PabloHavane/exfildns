@@ -84,3 +84,7 @@ domaine. Une alerte n'est levée que si un domaine parent (deux derniers labels)
 (CDN et cloud connus, complétable par fichier) écarte les services légitimes. Les seuils seront
 ajustés sur le trafic réel du homelab (#42). Limite : « deux derniers labels » se trompe sur
 les suffixes comme `.co.uk`, sans gêner la détection d'un tunnel.
+La fonction compte sur le tableau qu'on lui donne, sans fenêtre glissante : `scan` lui passe la
+capture entière, le dashboard la période choisie (filtre SQL). Le code de sortie de `scan` vaut 1
+seulement s'il y a une **alerte** (et non plus dès une requête suspecte), pour que les scripts
+ne subissent pas les faux positifs isolés.

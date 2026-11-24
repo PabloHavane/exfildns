@@ -169,9 +169,34 @@ def test_scan_liste_blanche(tmp_path, modele, capsys):
     blanche = tmp_path / "blanche.txt"
     blanche.write_text("attaquant.example\n")
 
-    main(["scan", str(capture), "-m", str(modele), "--liste-blanche", str(blanche)])
+    code = main(["scan", str(capture), "-m", str(modele), "--liste-blanche", str(blanche)])
 
     # les requêtes restent listées comme suspectes, mais aucune alerte n'est levée
+    assert code == 0
     sortie = capsys.readouterr().out
     assert "6 suspectes" in sortie
     assert "requêtes suspectes (0)" in sortie
+
+
+def test_alertes_a_egalite_triees_par_nom():
+    df = requetes(*tunnel(3, domaine="zz.example"), *tunnel(3, domaine="aa.example", debut=10))
+
+    assert alertes(df, min_requetes=3)["domaine"].tolist() == ["aa.example", "zz.example"]
+
+
+def test_est_autorise_normalise_la_liste():
+    assert est_autorise("x.cdn.fr", ["CDN.fr."])
+
+
+def test_scan_sans_alerte_code_0(tmp_path, modele, capsys):
+    # deux requêtes suspectes seulement : listées, mais pas d'alerte, donc code 0
+    capture = tmp_path / "capture.pcap"
+    ecrire_pcap(capture, [requete(q, dst="10.6.6.6") for q in noms_exfil(2, graine=9)])
+
+    assert main(["scan", str(capture), "-m", str(modele)]) == 0
+    assert "2 suspectes" in capsys.readouterr().out
+
+
+def test_scan_liste_blanche_introuvable_signalee_avant_l_analyse(tmp_path, modele):
+    with pytest.raises(FileNotFoundError):
+        main(["scan", str(tmp_path / "absente.pcap"), "--liste-blanche", str(tmp_path / "x.txt")])

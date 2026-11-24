@@ -47,7 +47,8 @@ def lire_liste_blanche(chemin: str | Path) -> list[str]:
 def est_autorise(qname: str, liste_blanche: Iterable[str]) -> bool:
     """Vrai si le nom est un domaine de la liste blanche ou l'un de ses sous-domaines."""
     nom = qname.rstrip(".").lower()
-    return any(nom == d or nom.endswith("." + d) for d in liste_blanche)
+    domaines = (d.rstrip(".").lower() for d in liste_blanche)
+    return any(nom == d or nom.endswith("." + d) for d in domaines)
 
 
 def alertes(
@@ -59,8 +60,10 @@ def alertes(
     """Domaines parents ayant reçu au moins `min_requetes` requêtes suspectes.
 
     `requetes` a les colonnes `timestamp, src, qname, qtype, score` (sortie de `exfildns sniff`
-    ou de `scan`) ; un `qtype` manquant signale un nom coupé dans la capture. Renvoie une ligne
-    par alerte (colonnes `COLONNES_ALERTES`), de la plus fournie à la moins fournie.
+    ou de `scan`) ; un `qtype` manquant signale un nom coupé dans la capture. La fonction compte
+    sur tout le tableau reçu : c'est l'appelant qui choisit la période (le dashboard filtre la
+    base par date). Renvoie une ligne par alerte (colonnes `COLONNES_ALERTES`), de la plus
+    fournie à la moins fournie.
     """
     liste_blanche = list(liste_blanche)
     suspectes = requetes[requetes["score"] >= seuil]
@@ -82,5 +85,7 @@ def alertes(
         }
     )
     resume = resume[resume["requetes_suspectes"] >= min_requetes]
-    resume = resume.sort_values("requetes_suspectes", ascending=False).reset_index()
+    resume = resume.reset_index().sort_values(
+        ["requetes_suspectes", "domaine"], ascending=[False, True], ignore_index=True
+    )
     return resume[COLONNES_ALERTES]

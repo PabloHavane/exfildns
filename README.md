@@ -92,7 +92,7 @@ requêtes suspectes : un tunnel en envoie des milliers, un faux positif isolé u
 domaines de la liste blanche (CDN et cloud connus, plus ceux d'un fichier `--liste-blanche`,
 un par ligne) n'alertent jamais.
 
-Code de sortie : **0** si rien n'est suspect, **1** si au moins une requête est suspecte,
+Code de sortie : **0** sans alerte, **1** si au moins une alerte est levée,
 **2** si le modèle est introuvable (une autre erreur, comme une capture introuvable, renvoie
 aussi 1 avec un message d'erreur). Dans un script :
 
