@@ -6,3 +6,7 @@ import os
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 __version__ = "1.0.0"
+
+# Seuil de décision : une requête est signalée si sa probabilité d'exfiltration dépasse 0,5.
+# Défini ici, sans dépendance, pour que le dashboard et les alertes ne chargent pas TensorFlow.
+SEUIL = 0.5
