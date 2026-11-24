@@ -94,10 +94,35 @@ def activite_par_minute(requetes: pd.DataFrame, seuil: float) -> pd.DataFrame:
     return activite
 
 
-def classement(suspectes: pd.DataFrame, colonne: str, n: int = 10) -> pd.DataFrame:
+def classement(suspectes: pd.DataFrame, colonne: str, libelle: str, n: int = 10) -> pd.DataFrame:
     """Les `n` valeurs de `colonne` les plus fréquentes parmi les requêtes suspectes."""
     compte = suspectes[colonne].value_counts().head(n)
-    return compte.rename_axis(colonne).reset_index(name="requêtes suspectes")
+    return compte.rename_axis(libelle).reset_index(name="requêtes suspectes")
+
+
+def graphique_activite(activite: pd.DataFrame):
+    """Barres empilées bénignes / suspectes par minute, sans zoom à la molette.
+
+    Le graphique par défaut de Streamlit est zoomable : la molette le zoomait au lieu de faire
+    défiler la page. Un graphique Altair sans `.interactive()` reste fixe.
+    """
+    import altair as alt
+
+    donnees = activite.reset_index().melt("minute", var_name="classe", value_name="requêtes")
+    couleurs = alt.Scale(domain=["bénignes", "suspectes"], range=["#4c78a8", "#e45756"])
+    return (
+        alt.Chart(donnees)
+        .mark_bar()
+        .encode(
+            # format 24 h : par défaut, Vega affiche 03:31 pour 15:31 (12 h sans AM/PM)
+            x=alt.X("minute:T", title=None, axis=alt.Axis(format="%H:%M")),
+            y=alt.Y("requêtes:Q", stack=True),
+            color=alt.Color(
+                "classe:N", scale=couleurs, legend=alt.Legend(title=None, orient="top")
+            ),
+            tooltip=[alt.Tooltip("minute:T", format="%H:%M"), "classe:N", "requêtes:Q"],
+        )
+    )
 
 
 def tableau_alertes(resume: pd.DataFrame) -> pd.DataFrame:
@@ -167,20 +192,30 @@ def afficher_resultats(st, requetes: pd.DataFrame, seuil: float, min_requetes: i
     else:
         domaines = ", ".join(resume["domaine"].head(3))
         st.error(f"{len(resume)} alerte(s) : exfiltration DNS probable vers {domaines}.")
-        st.dataframe(tableau_alertes(resume), hide_index=True, width="stretch")
+        st.dataframe(
+            tableau_alertes(resume),
+            hide_index=True,
+            width="stretch",
+            column_config={"score moyen": st.column_config.NumberColumn(format="%.3f")},
+        )
 
     st.subheader("Activité DNS par minute")
-    st.bar_chart(activite_par_minute(requetes, seuil), color=["#4c78a8", "#e45756"])
+    st.altair_chart(graphique_activite(activite_par_minute(requetes, seuil)), width="stretch")
 
     if suspectes.empty:
         return
     gauche, droite = st.columns(2)
     gauche.subheader("Postes à l'origine des requêtes suspectes")
-    gauche.dataframe(classement(suspectes, "src"), hide_index=True, width="stretch")
+    gauche.dataframe(classement(suspectes, "src", "poste"), hide_index=True, width="stretch")
     droite.subheader("Serveurs DNS interrogés")
-    droite.dataframe(classement(suspectes, "dst"), hide_index=True, width="stretch")
+    droite.dataframe(classement(suspectes, "dst", "serveur DNS"), hide_index=True, width="stretch")
     st.subheader("Requêtes suspectes les plus récentes")
-    st.dataframe(tableau_requetes(suspectes), hide_index=True, width="stretch")
+    st.dataframe(
+        tableau_requetes(suspectes),
+        hide_index=True,
+        width="stretch",
+        column_config={"score": st.column_config.NumberColumn(format="%.3f")},
+    )
 
 
 def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) -> None:
