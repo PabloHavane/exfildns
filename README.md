@@ -96,6 +96,19 @@ uv run exfildns scan capture.pcap > rapport.txt
 [ $? -eq 1 ] && grep -q suspectes rapport.txt && echo "Exfiltration suspectée"
 ```
 
+## Notebook de méthodologie
+
+[notebooks/methodologie.ipynb](notebooks/methodologie.ipynb) déroule la démarche d'apprentissage
+(données, features, découpage, modèles, métriques, explicabilité). Il est livré **exécuté** : il se
+lit directement sur GitHub. Pour le relancer (dataset dans `data/`) :
+
+```bash
+uv sync --group notebook
+uv run --group notebook jupyter lab notebooks/methodologie.ipynb   # puis « Run All »
+```
+
+Il réentraîne le réseau et réécrit `models/exfildns.keras`, le même modèle que `exfildns train`.
+
 ## Documentation
 
 | Document | Contenu |
