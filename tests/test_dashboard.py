@@ -331,5 +331,15 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     assert commande[1:4] == ["-m", "streamlit", "run"]
     assert commande[4] == FICHIER_APP
     assert commande[commande.index("--server.port") + 1] == "9000"
+    assert commande[commande.index("--server.address") + 1] == "localhost"  # pas exposé
     assert env["EXFILDNS_BASE"] == str(tmp_path / "detections.db")
     assert "localhost:9000" in capsys.readouterr().out
+
+
+def test_cli_dashboard_adresse_explicite(monkeypatch):
+    appels = []
+    monkeypatch.setattr("exfildns.cli.subprocess.call", lambda c, env: appels.append(c) or 0)
+
+    main(["dashboard", "--adresse", "0.0.0.0"])
+
+    assert appels[0][appels[0].index("--server.address") + 1] == "0.0.0.0"
