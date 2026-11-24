@@ -19,8 +19,10 @@ from exfildns.model import (
     split_par_capture,
 )
 from exfildns.pcap import read_dns_queries
+from exfildns.sniff import lots_reseau, ouvrir_base, surveiller
 
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
+BASE_PAR_DEFAUT = "detections.db"
 
 
 def afficher_metriques(metriques: dict[str, float | int]) -> None:
@@ -104,6 +106,37 @@ def commande_scan(args) -> int:
     return 1
 
 
+def commande_sniff(args) -> int:
+    if not Path(args.modele).exists():
+        print(
+            f"Modèle introuvable : {args.modele} (lancer d'abord exfildns train).", file=sys.stderr
+        )
+        return 2
+    modele = charger(args.modele)
+    connexion = ouvrir_base(args.base)
+    interface = args.interface or "l'interface par défaut"
+    print(f"Capture DNS sur {interface}, requêtes enregistrées dans {args.base}.")
+    print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.")
+    try:
+        analysees, suspectes = surveiller(
+            lots_reseau(args.interface), modele, connexion, args.seuil
+        )
+    except PermissionError:
+        print(
+            "Droits insuffisants pour capturer : lancer en root ou donner la capacité "
+            "CAP_NET_RAW à l'interpréteur Python.",
+            file=sys.stderr,
+        )
+        return 2
+    except ValueError as erreur:  # interface inconnue
+        print(f"Capture impossible : {erreur}", file=sys.stderr)
+        return 2
+    finally:
+        connexion.close()
+    print(f"\nCapture arrêtée : {analysees} requêtes analysées, {suspectes} suspectes.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="exfildns",
@@ -142,6 +175,18 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--seuil", type=float, default=SEUIL, help="seuil de probabilité")
     scan.add_argument("--max", type=int, default=20, help="nombre de requêtes suspectes listées")
     scan.set_defaults(fonction=commande_scan)
+
+    sniff = commandes.add_parser(
+        "sniff",
+        help="détecte en direct sur une interface réseau (root ou CAP_NET_RAW)",
+    )
+    sniff.add_argument("-i", "--interface", help="interface à écouter (défaut : celle de scapy)")
+    sniff.add_argument("-m", "--modele", default=MODELE_PAR_DEFAUT, help="fichier .keras")
+    sniff.add_argument("--seuil", type=float, default=SEUIL, help="seuil d'affichage")
+    sniff.add_argument(
+        "--base", default=BASE_PAR_DEFAUT, help="base SQLite où enregistrer les requêtes"
+    )
+    sniff.set_defaults(fonction=commande_sniff)
     return parser
 
 

@@ -230,5 +230,9 @@ models/*
 !models/.gitkeep
 *.pcap
 *.pcapng
+# Bases de détections écrites par exfildns sniff
+*.db
+*.db-shm
+*.db-wal
 # Réglages Claude personnels (les réglages partagés sont dans .claude/settings.json)
 .claude/settings.local.json
