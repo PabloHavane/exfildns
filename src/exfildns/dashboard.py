@@ -195,10 +195,54 @@ def graduations(debuts: pd.DatetimeIndex, minutes: int) -> list[pd.Timestamp]:
     return list(rondes if len(rondes) else debuts[:1])
 
 
-def classement(suspectes: pd.DataFrame, colonne: str, libelle: str, n: int = 10) -> pd.DataFrame:
-    """Les `n` valeurs de `colonne` les plus fréquentes parmi les requêtes suspectes."""
-    compte = suspectes[colonne].value_counts().head(n)
-    return compte.rename_axis(libelle).reset_index(name="requêtes suspectes")
+def graphique_histogramme(histogramme: pd.DataFrame, seuil: float):
+    """Histogramme des scores du modèle, seuil de la sidebar en trait vertical."""
+    import altair as alt
+
+    # couleur selon le début de tranche : juste tant que le seuil tombe sur une borne
+    # (pas du curseur = pas de l'histogramme, 0,05)
+    donnees = histogramme.assign(
+        classe=["suspectes" if d >= seuil else "bénignes" for d in histogramme["début"]]
+    )
+    couleurs = alt.Scale(domain=["bénignes", "suspectes"], range=["#4c78a8", "#e45756"])
+    barres = (
+        alt.Chart(donnees)
+        .mark_bar(orient="vertical")
+        .encode(
+            x=alt.X("début:Q", title="score", scale=alt.Scale(domain=[0, 1])),
+            x2="fin:Q",
+            # échelle symlog : les nombreuses requêtes bénignes près de 0 n'écrasent pas le reste
+            y=alt.Y("requêtes:Q", scale=alt.Scale(type="symlog"), title="requêtes"),
+            color=alt.Color("classe:N", scale=couleurs, legend=None),
+            tooltip=[
+                alt.Tooltip("début:Q", title="de", format=".2f"),
+                alt.Tooltip("fin:Q", title="à", format=".2f"),
+                "requêtes:Q",
+            ],
+        )
+    )
+    trait = (
+        alt.Chart(pd.DataFrame({"seuil": [seuil]}))
+        .mark_rule(color="#b30000", strokeDash=[4, 3], strokeWidth=2)
+        .encode(x="seuil:Q", tooltip=[alt.Tooltip("seuil:Q", format=".2f")])
+    )
+    return (barres + trait).properties(height=220)
+
+
+def graphique_qtypes(repartition: pd.DataFrame):
+    """Barres horizontales : nombre de requêtes par type d'enregistrement."""
+    import altair as alt
+
+    return (
+        alt.Chart(repartition)
+        .mark_bar(color="#4c78a8")
+        .encode(
+            x=alt.X("requêtes:Q", title=None),
+            y=alt.Y("type:N", sort="-x", title=None),
+            tooltip=["type:N", "requêtes:Q"],
+        )
+        .properties(height=220)
+    )
 
 
 def graphique_activite(
@@ -398,17 +442,59 @@ def afficher_file_alertes(st, resume: pd.DataFrame, min_requetes: int) -> None:
             st.caption(f"… et {len(file) - ALERTES_MAX} autre(s).")
 
 
+def afficher_panneaux(st, requetes: pd.DataFrame, seuil: float, onglet: str) -> None:
+    """Rangée de panneaux : top domaines, top postes, types de requêtes, scores du modèle.
+
+    `onglet` préfixe la clé des widgets : la supervision et la capture importée affichent
+    chacune ces panneaux dans la même page.
+    """
+    domaines, postes, types, scores = st.columns(4, gap="medium")
+    with domaines:
+        st.markdown("**Top domaines parents**")
+        tri = st.segmented_control(
+            "Tri",
+            ["volume", "score"],
+            default="volume",
+            key=f"tri_domaines_{onglet}",
+            label_visibility="collapsed",
+        )
+        st.dataframe(
+            synthese.top_domaines(requetes, seuil, tri or "volume"),
+            hide_index=True,
+            width="stretch",
+            column_config={"score moyen": st.column_config.NumberColumn(format="%.2f")},
+        )
+    with postes:
+        st.markdown("**Top postes**")
+        st.dataframe(
+            synthese.top_postes(requetes, seuil),
+            hide_index=True,
+            width="stretch",
+            column_config={"score max": st.column_config.NumberColumn(format="%.2f")},
+        )
+    with types:
+        st.markdown("**Types de requêtes**")
+        repartition = synthese.repartition_qtypes(requetes, detail.nom_qtype)
+        st.altair_chart(graphique_qtypes(repartition), width="stretch")
+    with scores:
+        st.markdown("**Scores du modèle**")
+        histogramme = synthese.histogramme_scores(requetes["score"])
+        st.altair_chart(graphique_histogramme(histogramme, seuil), width="stretch")
+        st.caption(f"Trait rouge : seuil {seuil:.2f}. Échelle logarithmique.")
+
+
 def afficher_resultats(
     st,
     requetes: pd.DataFrame,
     seuil: float,
     min_requetes: int,
     precedentes: pd.DataFrame | None = None,
+    onglet: str = "direct",
 ) -> None:
-    """Chiffres clés, timeline, file d'alertes et requêtes suspectes d'un ensemble de requêtes.
+    """Chiffres clés, timeline, file d'alertes, panneaux « top » et requêtes suspectes récentes.
 
     `precedentes` : requêtes de la période précédente, pour afficher les variations (aucune
-    si elle est vide).
+    si elle est vide). `onglet` préfixe la clé des widgets (`direct` ou `capture`).
     """
     resume = alertes(requetes, seuil, min_requetes)
     suspectes = requetes[requetes["score"] >= seuil]
@@ -436,13 +522,10 @@ def afficher_resultats(
     with droite:
         afficher_file_alertes(st, resume, min_requetes)
 
+    afficher_panneaux(st, requetes, seuil, onglet)
+
     if suspectes.empty:
         return
-    gauche, droite = st.columns(2)
-    gauche.subheader("Postes à l'origine des requêtes suspectes")
-    gauche.dataframe(classement(suspectes, "src", "poste"), hide_index=True, width="stretch")
-    droite.subheader("Serveurs DNS interrogés")
-    droite.dataframe(classement(suspectes, "dst", "serveur DNS"), hide_index=True, width="stretch")
     st.subheader("Requêtes suspectes les plus récentes")
     st.dataframe(
         tableau_requetes(suspectes),
@@ -720,7 +803,7 @@ def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) ->
         st.error(f"{fichier.name} n'est pas une capture réseau lisible (pcap ou pcapng).")
         return
     st.caption(f"Capture : {fichier.name}.")
-    afficher_resultats(st, requetes, seuil, min_requetes)
+    afficher_resultats(st, requetes, seuil, min_requetes, onglet="capture")
 
 
 def page() -> None:

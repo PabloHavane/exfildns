@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from exfildns.alertes import domaine_parent
@@ -135,3 +136,70 @@ def echapper_markdown(texte: str) -> str:
     """
     sur = "".join(c if 32 <= ord(c) < 127 else f"\\x{ord(c):02x}" for c in texte)
     return re.sub(r"([\\`*_{}\[\]()#+\-.!|<>~:$&])", r"\\\1", sur)
+
+
+# --- panneaux « top » et distribution des scores ---
+
+
+def top_domaines(
+    requetes: pd.DataFrame, seuil: float, tri: str = "volume", n: int = 8
+) -> pd.DataFrame:
+    """Domaines parents les plus interrogés (`tri="volume"`) ou les plus suspects
+    (`tri="score"`, score moyen décroissant). Colonnes : domaine, requêtes, suspectes,
+    score moyen."""
+    domaines = [
+        domaine_parent(q, pd.isna(t))
+        for q, t in zip(requetes["qname"], requetes["qtype"], strict=True)
+    ]
+    groupes = requetes.assign(domaine=domaines, suspecte=requetes["score"] >= seuil).groupby(
+        "domaine"
+    )
+    top = pd.DataFrame(
+        {
+            "requêtes": groupes.size(),
+            "suspectes": groupes["suspecte"].sum().astype(int),
+            "score moyen": groupes["score"].mean(),
+        }
+    ).reset_index()
+    cles = ["requêtes", "score moyen"] if tri == "volume" else ["score moyen", "requêtes"]
+    return (
+        top.sort_values(cles + ["domaine"], ascending=[False, False, True])
+        .head(n)
+        .reset_index(drop=True)
+    )
+
+
+def top_postes(requetes: pd.DataFrame, seuil: float, n: int = 8) -> pd.DataFrame:
+    """Postes classés par requêtes suspectes puis par volume. Colonnes : poste, requêtes,
+    suspectes, score max."""
+    groupes = requetes.assign(suspecte=requetes["score"] >= seuil).groupby("src")
+    top = (
+        pd.DataFrame(
+            {
+                "requêtes": groupes.size(),
+                "suspectes": groupes["suspecte"].sum().astype(int),
+                "score max": groupes["score"].max(),
+            }
+        )
+        .rename_axis("poste")
+        .reset_index()
+    )
+    return (
+        top.sort_values(["suspectes", "requêtes", "poste"], ascending=[False, False, True])
+        .head(n)
+        .reset_index(drop=True)
+    )
+
+
+def repartition_qtypes(requetes: pd.DataFrame, noms) -> pd.DataFrame:
+    """Nombre de requêtes par type d'enregistrement (`noms` : numéro -> nom), du plus fréquent
+    au moins fréquent. Colonnes : type, requêtes."""
+    compte = requetes["qtype"].value_counts(dropna=False)  # quelques types : `noms` sur l'index
+    return pd.DataFrame({"type": [noms(q) for q in compte.index], "requêtes": compte.to_numpy()})
+
+
+def histogramme_scores(scores: pd.Series, pas: float = 0.05) -> pd.DataFrame:
+    """Nombre de requêtes par tranche de score `[début, fin[` ; la dernière inclut 1."""
+    bornes = np.linspace(0, 1, round(1 / pas) + 1).round(10)  # 0.95 et non 0.9500000000000001
+    compte, _ = np.histogram(scores.clip(0, 1), bins=bornes)
+    return pd.DataFrame({"début": bornes[:-1], "fin": bornes[1:], "requêtes": compte})
