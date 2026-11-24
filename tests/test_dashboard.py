@@ -18,11 +18,12 @@ from exfildns.cli import main
 from exfildns.dashboard import (
     activite_dns,
     analyser_capture,
-    classement,
     derniere_requete,
     en_heure,
     graduations,
     graphique_activite,
+    graphique_histogramme,
+    graphique_qtypes,
     instants_alertes,
     intervalle,
     lire_requetes,
@@ -329,15 +330,6 @@ def test_activite_dns_vide():
     assert list(activite.columns) == ["bénignes", "suspectes"]
 
 
-def test_classement():
-    suspectes = pd.DataFrame({"src": ["a", "b", "a", "a", "c", "b"]})
-
-    tableau = classement(suspectes, "src", "poste", n=2)
-
-    assert tableau.values.tolist() == [["a", 3], ["b", 2]]
-    assert list(tableau.columns) == ["poste", "requêtes suspectes"]
-
-
 def test_tableau_requetes_plus_recentes_d_abord():
     suspectes = pd.DataFrame(
         {
@@ -395,9 +387,10 @@ def test_app_affiche_l_alerte(base_demo, monkeypatch):
     # file d'alertes : le domaine est échappé pour le Markdown
     assert "attaquant\\.example" in texte(at.tabs[0])
     assert "File d'alertes (1)" in [s.value for s in at.tabs[0].subheader]
-    assert len(at.tabs[0].dataframe) == 3  # postes, serveurs, requêtes suspectes
-    assert at.tabs[0].dataframe[0].value.iloc[0]["poste"] == "10.0.0.66"
-    assert at.tabs[0].dataframe[1].value.columns[0] == "serveur DNS"
+    domaines, postes, recentes = at.tabs[0].dataframe  # top domaines, top postes, récentes
+    assert domaines.value.loc[0, "domaine"] == "attaquant.example"  # 8 requêtes, le plus gros
+    assert postes.value.loc[0, "poste"] == "10.0.0.66"  # le plus de requêtes suspectes
+    assert len(recentes.value) == 9
 
 
 def test_app_seuil_plus_strict(base_demo, monkeypatch):
@@ -408,7 +401,7 @@ def test_app_seuil_plus_strict(base_demo, monkeypatch):
     assert not at.exception
     assert {m.label: m.value for m in at.metric}["Suspectes"] == "0"
     assert "Aucune alerte" in texte(at.tabs[0])
-    assert len(at.tabs[0].dataframe) == 0
+    assert len(at.tabs[0].dataframe) == 2  # panneaux top, pas de requête suspecte récente
 
 
 def test_app_minimum_de_requetes(base_demo, monkeypatch):
@@ -957,3 +950,51 @@ def test_app_file_d_alertes_nom_malveillant_echappe(tmp_path, monkeypatch):
     cartes = texte(at.tabs[0])
     assert "\\[clic\\]\\(http\\:" in cartes
     assert "MOYENNE" in cartes  # score net mais pas assez de requêtes pour « haute »
+
+
+# --- panneaux « top » et histogramme ---
+
+
+def test_app_panneaux_tri_des_domaines(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+    assert at.tabs[0].dataframe[0].value.loc[0, "domaine"] == "attaquant.example"
+
+    at.segmented_control(key="tri_domaines_direct").set_value("score").run()
+
+    assert at.tabs[0].dataframe[0].value.loc[0, "domaine"] == "attaquant.example"  # 0.97
+    assert at.tabs[0].dataframe[0].value.loc[1, "domaine"] == "cloudfront.net"  # 0.8
+
+
+def test_graphique_histogramme_seuil():
+    from exfildns.synthese import histogramme_scores
+
+    spec = graphique_histogramme(histogramme_scores(pd.Series([0.1, 0.9])), 0.7).to_dict()
+
+    barres, trait = spec["layer"]
+    assert trait["mark"]["type"] == "rule"
+    assert spec["datasets"][trait["data"]["name"]] == [{"seuil": 0.7}]
+    couleurs = {d["début"]: d["classe"] for d in spec["datasets"][barres["data"]["name"]]}
+    assert couleurs[0.65] == "bénignes" and couleurs[0.7] == "suspectes"
+
+
+def test_graphique_qtypes():
+    spec = graphique_qtypes(pd.DataFrame({"type": ["A", "TXT"], "requêtes": [5, 2]})).to_dict()
+
+    assert spec["mark"]["type"] == "bar"
+    assert spec["encoding"]["y"]["sort"] == "-x"
+
+
+def test_app_supervision_et_capture_en_meme_temps(base_demo, tmp_path, modele, monkeypatch):
+    """Les deux onglets affichent des panneaux : leurs widgets ne doivent pas partager de clé."""
+    contenu = octets_pcap(
+        tmp_path,
+        [requete(q) for q in noms_benins(5, graine=15)]
+        + [requete(q, dst="10.6.6.6") for q in noms_exfil(6, graine=15)],
+    )
+    monkeypatch.setenv("EXFILDNS_MODELE", str(modele))
+    at = app(base_demo, monkeypatch).run()
+
+    at = deposer(at, "tunnel.pcap", contenu)
+
+    assert not at.exception
+    assert at.tabs[0].metric and at.tabs[2].metric
