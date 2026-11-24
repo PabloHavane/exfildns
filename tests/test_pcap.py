@@ -1,3 +1,4 @@
+import pytest
 from conftest import NOM_EXFIL, ecrire_pcap, requete
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.inet import IP, TCP, UDP
@@ -130,6 +131,20 @@ def test_requete_dns_ipv6():
     paquet = Ether() / ipv6 / UDP(dport=53) / DNS(qd=DNSQR(qname="v6.fr"))
 
     assert requete_dns(paquet)[1:4] == ("fe80::1", "fe80::2", "v6.fr")
+    assert requete_dns(Ether(bytes(paquet)))[5] == len(paquet[UDP].payload)
+
+
+@pytest.mark.parametrize("longueur", [0, 4, 7])
+def test_requete_dns_longueur_udp_incoherente(longueur):
+    """Longueur UDP nulle ou plus petite que l'en-tête (paquet forgé) : on compte les octets."""
+    dns = DNS(qd=DNSQR(qname="a.fr"))
+    paquet = Ether(bytes(Ether() / IP() / UDP(dport=53, len=longueur) / dns))
+
+    taille = requete_dns(paquet)[5]
+
+    # scapy coupe la charge à la longueur annoncée : on garde ce qu'il a découpé, jamais < 0
+    assert taille == len(paquet[UDP].payload.original)
+    assert 0 <= taille <= len(bytes(dns))
 
 
 def test_requete_dns_ignore_ce_qui_n_est_pas_une_requete():

@@ -110,7 +110,7 @@ Keras 3 en backend NumPy). Les binaires setuid de l'image de base restent prése
 (sans no-new-privileges) : risque faible, seule NET_RAW est dans l'ensemble limitant et la racine
 est en lecture seule.
 
-## 2026-11-24 — Interface SOC : taille des requêtes en base, noms en français
+## 2026-11-24 — Interface SOC (v2.1) : données affichées et limites
 
 La table `requetes` gagne une colonne `taille` (octets du message DNS, lus dans l'en-tête UDP
 pour rester justes sur un paquet tronqué), ajoutée par une migration additive dans `ouvrir_base` :

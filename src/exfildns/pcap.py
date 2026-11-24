@@ -50,7 +50,8 @@ def requete_dns(paquet) -> tuple[float, str, str, str, int | None, int] | None:
     """Transforme un paquet scapy en requête `(timestamp, src, dst, qname, qtype, taille)`.
 
     `taille` est la taille du message DNS en octets, lue dans l'en-tête UDP : elle reste juste
-    même si la capture a tronqué le paquet. Renvoie `None` si le paquet n'est pas une requête.
+    même si la capture a tronqué le paquet (c'est la valeur annoncée par l'émetteur, seulement
+    affichée, jamais donnée au modèle). Renvoie `None` si le paquet n'est pas une requête.
 
     Seules les requêtes DNS (UDP, port 53, IPv4 ou IPv6) sont gardées : réponses et trafic
     non DNS donnent `None`. Sert à la lecture d'un fichier comme à la capture en direct,
@@ -68,9 +69,13 @@ def requete_dns(paquet) -> tuple[float, str, str, str, int | None, int] | None:
     if not est_requete(dns):
         return None
     qname, qtype = lire_question(dns)
-    # longueur UDP (en-tête de 8 octets compris) ; absente d'un paquet construit en mémoire
+    # longueur UDP (en-tête de 8 octets compris), annoncée par l'émetteur ; absente d'un paquet
+    # construit en mémoire, nulle (jumbogramme IPv6) ou incohérente : on compte les octets reçus
     longueur_udp = paquet[UDP].len
-    taille = longueur_udp - TAILLE_ENTETE_UDP if longueur_udp else len(dns)
+    if longueur_udp is not None and longueur_udp >= TAILLE_ENTETE_UDP:
+        taille = longueur_udp - TAILLE_ENTETE_UDP
+    else:
+        taille = len(dns)
     return float(paquet.time), couche_ip.src, couche_ip.dst, qname, qtype, taille
 
 
