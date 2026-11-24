@@ -27,6 +27,7 @@ from exfildns.sniff import lots_reseau, ouvrir_base, surveiller
 
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 BASE_PAR_DEFAUT = "detections.db"
+TAILLE_MAX_CAPTURE = 100  # Mo, pour les captures déposées dans le dashboard
 
 
 def afficher_metriques(metriques: dict[str, float | int]) -> None:
@@ -140,13 +141,17 @@ def commande_sniff(args) -> int:
 
 
 def commande_dashboard(args) -> int:
-    """Lance le serveur Streamlit sur le dashboard, en lui passant la base à lire."""
-    env = {**os.environ, "EXFILDNS_BASE": str(Path(args.base).resolve())}
+    """Lance le serveur Streamlit sur le dashboard, en lui passant la base et le modèle."""
+    env = {
+        **os.environ,
+        "EXFILDNS_BASE": str(Path(args.base).resolve()),
+        "EXFILDNS_MODELE": str(Path(args.modele).resolve()),
+    }
     commande = [sys.executable, "-m", "streamlit", "run", dashboard.__file__]
     # localhost par défaut : le dashboard montre les noms demandés et les postes, il ne doit
     # pas être exposé sur le réseau sans le vouloir (dans un conteneur : --adresse 0.0.0.0)
     commande += ["--server.address", args.adresse, "--server.port", str(args.port)]
-    commande += ["--server.headless", "true"]
+    commande += ["--server.headless", "true", "--server.maxUploadSize", str(TAILLE_MAX_CAPTURE)]
     commande += ["--browser.gatherUsageStats", "false"]
     print(
         f"Dashboard : http://{args.adresse}:{args.port} (base {args.base}) ; Ctrl+C pour arrêter."
@@ -220,6 +225,9 @@ def build_parser() -> argparse.ArgumentParser:
     tableau = commandes.add_parser("dashboard", help="ouvre le dashboard web de supervision")
     tableau.add_argument("--base", default=BASE_PAR_DEFAUT, help="base SQLite écrite par sniff")
     tableau.add_argument("--port", type=int, default=8501, help="port HTTP du dashboard")
+    tableau.add_argument(
+        "-m", "--modele", default=MODELE_PAR_DEFAUT, help="modèle pour analyser une capture"
+    )
     tableau.add_argument(
         "--adresse", default="localhost", help="adresse d'écoute (0.0.0.0 : tout le réseau)"
     )

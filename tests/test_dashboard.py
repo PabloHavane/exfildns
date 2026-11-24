@@ -341,6 +341,8 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     assert commande[commande.index("--server.port") + 1] == "9000"
     assert commande[commande.index("--server.address") + 1] == "localhost"  # pas exposé
     assert env["EXFILDNS_BASE"] == str(tmp_path / "detections.db")
+    assert env["EXFILDNS_MODELE"] == str(tmp_path / "models" / "exfildns.keras")
+    assert commande[commande.index("--server.maxUploadSize") + 1] == "100"
     assert "localhost:9000" in capsys.readouterr().out
 
 

@@ -8,9 +8,9 @@ Les fonctions de préparation des données sont pures et testées sans navigateu
 n'est construite que lorsque Streamlit exécute ce fichier (`page()`, tout en bas).
 """
 
+import io
 import os
 import sqlite3
-import tempfile
 import time
 from contextlib import closing
 from datetime import datetime
@@ -23,7 +23,8 @@ from exfildns.evaluation import SEUIL
 
 BASE_PAR_DEFAUT = "detections.db"
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
-EXTENSIONS_CAPTURE = ["pcap", "pcapng", "cap"]
+EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
+CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
 RAFRAICHISSEMENT = 5  # secondes
 
 # Période affichée -> durée en secondes (None : toute la base)
@@ -131,18 +132,16 @@ def analyser_capture(contenu: bytes, chemin_modele: str) -> pd.DataFrame:
     """Requêtes DNS d'un fichier de capture (contenu brut), notées par le modèle.
 
     Même chaîne que `exfildns sniff` (`noter` : décodage des paquets, features, modèle).
-    Lève `Scapy_Exception` si le fichier n'est pas une capture lisible.
+    Lève `Scapy_Exception` si le fichier n'est pas une capture lisible. Le résultat est mis en
+    cache par le dashboard : après un réentraînement, relancer le dashboard.
     """
     from scapy.utils import PcapReader
 
     from exfildns.model import charger
     from exfildns.sniff import noter
 
-    with tempfile.NamedTemporaryFile(suffix=".pcap") as fichier:
-        fichier.write(contenu)
-        fichier.flush()
-        with PcapReader(fichier.name) as paquets:
-            return noter(charger(chemin_modele), paquets)
+    with PcapReader(io.BytesIO(contenu)) as paquets:
+        return noter(charger(chemin_modele), paquets)
 
 
 # --- Interface (exécutée par Streamlit uniquement) ---
@@ -211,9 +210,10 @@ def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) ->
         return
     try:
         with st.spinner(f"Analyse de {fichier.name}…"):
-            requetes = st.cache_data(analyser_capture, show_spinner=False)(
-                fichier.getvalue(), chemin_modele
+            analyse = st.cache_data(
+                analyser_capture, show_spinner=False, max_entries=CAPTURES_EN_CACHE
             )
+            requetes = analyse(fichier.getvalue(), chemin_modele)
     except Scapy_Exception:
         st.error(f"{fichier.name} n'est pas une capture réseau lisible (pcap ou pcapng).")
         return
