@@ -68,7 +68,7 @@ def requete_dns(paquet) -> tuple | None:
 
 
 def en_dataframe(requetes: list[tuple]) -> pd.DataFrame:
-    """Met des requêtes renvoyées par `requete_dns` sous forme de DataFrame (colonnes `COLONNES`)."""
+    """Range des requêtes renvoyées par `requete_dns` dans un DataFrame aux colonnes `COLONNES`."""
     return pd.DataFrame(requetes, columns=COLONNES).astype({"qtype": "Int64"})
 
 
