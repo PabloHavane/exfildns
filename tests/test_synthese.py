@@ -258,3 +258,35 @@ def test_histogramme_scores_bornes():
 
 def test_histogramme_scores_vide():
     assert histogramme_scores(pd.Series([], dtype=float))["requêtes"].sum() == 0
+
+
+def test_top_domaines_egalites():
+    lot = requetes(
+        ("a", "1.b.ex", 1, 0.2),
+        ("a", "2.b.ex", 1, 0.2),
+        ("a", "1.a.ex", 1, 0.6),
+        ("a", "2.a.ex", 1, 0.6),
+        ("a", "1.c.ex", 1, 0.6),
+        ("a", "2.c.ex", 1, 0.6),
+    )
+
+    # même volume : score moyen décroissant, puis nom
+    assert top_domaines(lot, 0.5)["domaine"].tolist() == ["a.ex", "c.ex", "b.ex"]
+
+
+def test_top_postes_egalites():
+    lot = requetes(
+        ("z", "1.ex", 1, 0.9),
+        ("y", "1.ex", 1, 0.9),
+        ("y", "2.ex", 1, 0.1),
+        ("x", "1.ex", 1, 0.9),
+    )
+
+    # même nombre de suspectes : volume décroissant, puis poste
+    assert top_postes(lot, 0.5)["poste"].tolist() == ["y", "x", "z"]
+
+
+def test_repartition_qtypes_type_absent(trafic):
+    lot = pd.concat([trafic, requetes(("d", "coupe", None, 0.7))], ignore_index=True)
+
+    assert "?" in repartition_qtypes(lot, nom_qtype)["type"].tolist()

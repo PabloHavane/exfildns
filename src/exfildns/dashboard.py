@@ -199,6 +199,8 @@ def graphique_histogramme(histogramme: pd.DataFrame, seuil: float):
     """Histogramme des scores du modèle, seuil de la sidebar en trait vertical."""
     import altair as alt
 
+    # couleur selon le début de tranche : juste tant que le seuil tombe sur une borne
+    # (pas du curseur = pas de l'histogramme, 0,05)
     donnees = histogramme.assign(
         classe=["suspectes" if d >= seuil else "bénignes" for d in histogramme["début"]]
     )
@@ -489,10 +491,10 @@ def afficher_resultats(
     precedentes: pd.DataFrame | None = None,
     onglet: str = "direct",
 ) -> None:
-    """Chiffres clés, timeline, file d'alertes et requêtes suspectes d'un ensemble de requêtes.
+    """Chiffres clés, timeline, file d'alertes, panneaux « top » et requêtes suspectes récentes.
 
     `precedentes` : requêtes de la période précédente, pour afficher les variations (aucune
-    si elle est vide).
+    si elle est vide). `onglet` préfixe la clé des widgets (`direct` ou `capture`).
     """
     resume = alertes(requetes, seuil, min_requetes)
     suspectes = requetes[requetes["score"] >= seuil]

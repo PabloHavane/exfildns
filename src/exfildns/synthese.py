@@ -141,7 +141,9 @@ def echapper_markdown(texte: str) -> str:
 # --- panneaux « top » et distribution des scores ---
 
 
-def top_domaines(requetes: pd.DataFrame, seuil: float, tri: str = "volume", n: int = 8):
+def top_domaines(
+    requetes: pd.DataFrame, seuil: float, tri: str = "volume", n: int = 8
+) -> pd.DataFrame:
     """Domaines parents les plus interrogés (`tri="volume"`) ou les plus suspects
     (`tri="score"`, score moyen décroissant). Colonnes : domaine, requêtes, suspectes,
     score moyen."""
@@ -192,9 +194,8 @@ def top_postes(requetes: pd.DataFrame, seuil: float, n: int = 8) -> pd.DataFrame
 def repartition_qtypes(requetes: pd.DataFrame, noms) -> pd.DataFrame:
     """Nombre de requêtes par type d'enregistrement (`noms` : numéro -> nom), du plus fréquent
     au moins fréquent. Colonnes : type, requêtes."""
-    types = requetes["qtype"].map(noms)
-    compte = types.value_counts()
-    return pd.DataFrame({"type": compte.index, "requêtes": compte.to_numpy()})
+    compte = requetes["qtype"].value_counts(dropna=False)  # quelques types : `noms` sur l'index
+    return pd.DataFrame({"type": [noms(q) for q in compte.index], "requêtes": compte.to_numpy()})
 
 
 def histogramme_scores(scores: pd.Series, pas: float = 0.05) -> pd.DataFrame:
