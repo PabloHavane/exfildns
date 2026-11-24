@@ -109,3 +109,13 @@ de la soutenance : reporté à une issue dédiée, avec l'autre piste (prédire 
 Keras 3 en backend NumPy). Les binaires setuid de l'image de base restent présents dans `sniff`
 (sans no-new-privileges) : risque faible, seule NET_RAW est dans l'ensemble limitant et la racine
 est en lecture seule.
+
+## 2026-11-24 — Interface SOC : taille des requêtes en base, noms en français
+
+La table `requetes` gagne une colonne `taille` (octets du message DNS, lus dans l'en-tête UDP
+pour rester justes sur un paquet tronqué), ajoutée par une migration additive dans `ouvrir_base` :
+les anciennes lignes valent NULL. Elle sert à l'affichage seulement, pas au modèle. Les noms de
+la base restent en français, comme l'existant. Le `rcode` n'est pas enregistré : la capture ne
+voit que les requêtes, il faudrait capturer et apparier les réponses. Domaine parent = deux
+derniers labels (pas de Public Suffix List). Pas de SHAP : le modèle est un réseau Keras, il
+faudrait une dépendance lourde et charger TensorFlow dans le dashboard.

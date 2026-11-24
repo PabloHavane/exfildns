@@ -89,16 +89,18 @@ def test_requete_dns_paquet_construit_en_memoire():
     paquet = requete("example.com", src="10.0.0.2", dst="10.0.0.1", qtype="TXT")
     paquet.time = 12.5
 
-    assert requete_dns(paquet) == (12.5, "10.0.0.2", "10.0.0.1", "example.com", 16)
+    # en-tête DNS (12) + nom encodé (13) + type et classe (4)
+    assert requete_dns(paquet) == (12.5, "10.0.0.2", "10.0.0.1", "example.com", 16, 29)
 
 
 def test_requete_dns_paquet_recu_du_reseau():
     # paquet disséqué depuis des octets, comme ceux de sniff() ou d'un fichier
     paquet = Ether(bytes(requete("www.example.com")))
 
-    _, src, dst, qname, qtype = requete_dns(paquet)
+    _, src, dst, qname, qtype, taille = requete_dns(paquet)
 
     assert (src, dst, qname, qtype) == ("192.168.20.38", "8.8.8.8", "www.example.com", 1)
+    assert taille == len(paquet[UDP].payload)
 
 
 def test_requete_dns_interface_any():
@@ -107,17 +109,20 @@ def test_requete_dns_interface_any():
     construit = CookedLinux(proto=0x0800) / IP(src="10.0.0.2", dst="10.0.0.1") / dns
     paquet = CookedLinux(bytes(construit))
 
-    assert requete_dns(paquet)[1:] == ("10.0.0.2", "10.0.0.1", "a.fr", 16)
+    assert requete_dns(paquet)[1:5] == ("10.0.0.2", "10.0.0.1", "a.fr", 16)
 
 
 def test_requete_dns_paquet_tronque():
-    paquet = Ether(bytes(requete(NOM_EXFIL, dst="192.168.20.72"))[:96])
+    complet = Ether(bytes(requete(NOM_EXFIL, dst="192.168.20.72")))
+    paquet = Ether(bytes(complet)[:96])
 
-    _, _, dst, qname, qtype = requete_dns(paquet)
+    _, _, dst, qname, qtype, taille = requete_dns(paquet)
 
     assert dst == "192.168.20.72"
     assert NOM_EXFIL.startswith(qname) and len(qname) > 20
     assert qtype is None
+    # taille réelle du message (en-tête UDP), pas celle des octets capturés
+    assert taille == len(complet[UDP].payload) > len(paquet[UDP].payload)
 
 
 def test_requete_dns_ipv6():
@@ -152,7 +157,7 @@ def test_en_dataframe_vide_garde_les_colonnes():
 
 
 def test_en_dataframe_type_inconnu():
-    df = en_dataframe([(1.0, "a", "b", "x.fr", 1), (2.0, "a", "b", "y.fr", None)])
+    df = en_dataframe([(1.0, "a", "b", "x.fr", 1, 26), (2.0, "a", "b", "y.fr", None, 26)])
 
     assert df["qtype"].dtype == "Int64"
     assert df.loc[0, "qtype"] == 1

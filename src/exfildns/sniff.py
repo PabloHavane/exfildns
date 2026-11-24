@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS requetes (
     dst TEXT NOT NULL,        -- serveur DNS interrogé
     qname TEXT NOT NULL,      -- nom demandé
     qtype INTEGER,            -- type d'enregistrement (1 = A, 16 = TXT…), NULL si inconnu
-    score REAL NOT NULL       -- probabilité d'exfiltration donnée par le modèle
+    score REAL NOT NULL,      -- probabilité d'exfiltration donnée par le modèle
+    taille INTEGER            -- taille du message DNS en octets, NULL dans une base antérieure
 );
 CREATE INDEX IF NOT EXISTS requetes_timestamp ON requetes (timestamp);
 """
@@ -41,7 +42,19 @@ def ouvrir_base(chemin: str | Path) -> sqlite3.Connection:
     # WAL : le dashboard peut lire pendant que la capture écrit
     connexion.execute("PRAGMA journal_mode=WAL")
     connexion.executescript(SCHEMA)
+    migrer(connexion)
     return connexion
+
+
+def migrer(connexion: sqlite3.Connection) -> None:
+    """Met à jour une base créée par une version antérieure (colonnes ajoutées depuis).
+
+    Ajout seulement : les lignes existantes gardent leurs valeurs, la nouvelle colonne y vaut NULL.
+    """
+    colonnes = {ligne[1] for ligne in connexion.execute("PRAGMA table_info(requetes)")}
+    if "taille" not in colonnes:
+        with connexion:
+            connexion.execute("ALTER TABLE requetes ADD COLUMN taille INTEGER")
 
 
 def noter(modele, paquets: Iterable) -> pd.DataFrame:
@@ -57,11 +70,20 @@ def noter(modele, paquets: Iterable) -> pd.DataFrame:
 def enregistrer(connexion: sqlite3.Connection, requetes: pd.DataFrame) -> None:
     """Ajoute des requêtes notées (sortie de `noter`) à la base."""
     lignes = [
-        (r.timestamp, r.src, r.dst, r.qname, None if pd.isna(r.qtype) else int(r.qtype), r.score)
+        (r.timestamp, r.src, r.dst, r.qname, _entier(r.qtype), r.score, _entier(r.taille))
         for r in requetes.itertuples()
     ]
     with connexion:  # une transaction par lot
-        connexion.executemany("INSERT INTO requetes VALUES (?, ?, ?, ?, ?, ?)", lignes)
+        connexion.executemany(
+            "INSERT INTO requetes (timestamp, src, dst, qname, qtype, score, taille)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            lignes,
+        )
+
+
+def _entier(valeur) -> int | None:
+    """Entier pandas (éventuellement manquant) -> entier Python ou NULL pour SQLite."""
+    return None if pd.isna(valeur) else int(valeur)
 
 
 def surveiller(

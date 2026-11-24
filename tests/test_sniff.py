@@ -6,7 +6,7 @@ import pytest
 from conftest import NOM_EXFIL, noms_benins, noms_exfil, requete
 from scapy.config import conf
 from scapy.error import Scapy_Exception
-from scapy.layers.inet import IP, TCP
+from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.l2 import Ether
 
 from exfildns.cli import main
@@ -48,7 +48,7 @@ def test_ouvrir_base_cree_la_table_et_le_dossier(tmp_path):
     connexion = ouvrir_base(base)
 
     colonnes = [c[1] for c in connexion.execute("PRAGMA table_info(requetes)")]
-    assert colonnes == ["timestamp", "src", "dst", "qname", "qtype", "score"]
+    assert colonnes == ["timestamp", "src", "dst", "qname", "qtype", "score", "taille"]
     assert connexion.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     connexion.close()
 
@@ -62,6 +62,39 @@ def test_ouvrir_base_garde_les_donnees_existantes(tmp_path, reseau):
     ouvrir_base(base).close()
 
     assert len(lignes(base)) == 1
+
+
+ANCIEN_SCHEMA = """CREATE TABLE requetes (timestamp REAL NOT NULL, src TEXT NOT NULL,
+    dst TEXT NOT NULL, qname TEXT NOT NULL, qtype INTEGER, score REAL NOT NULL)"""
+
+
+def test_ouvrir_base_migre_une_base_anterieure(tmp_path, reseau):
+    base = tmp_path / "detections.db"
+    with sqlite3.connect(base) as ancienne:
+        ancienne.execute(ANCIEN_SCHEMA)
+        ancienne.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1)")
+    ancienne.close()
+
+    connexion = ouvrir_base(base)
+    enregistrer(connexion, noter(reseau, [recu(requete("a.fr"))]))
+    connexion.close()
+
+    with sqlite3.connect(base) as lecture:
+        tailles = lecture.execute("SELECT qname, taille FROM requetes ORDER BY rowid").fetchall()
+    lecture.close()
+    assert tailles[0] == ("x.fr", None)  # ligne existante conservée, sans taille
+    assert tailles[1][0] == "a.fr" and tailles[1][1] > 0
+
+
+def test_ouvrir_base_migration_idempotente(tmp_path):
+    base = tmp_path / "detections.db"
+    ouvrir_base(base).close()
+
+    connexion = ouvrir_base(base)  # la colonne existe déjà : pas de second ALTER
+
+    colonnes = [c[1] for c in connexion.execute("PRAGMA table_info(requetes)")]
+    assert colonnes.count("taille") == 1
+    connexion.close()
 
 
 # --- noter ---
@@ -116,6 +149,19 @@ def test_enregistrer_type_inconnu_en_null(tmp_path, reseau):
 
     types = [ligne[3] for ligne in lignes(base)]
     assert types == [16, None]
+
+
+def test_enregistrer_taille_du_message(tmp_path, reseau):
+    base = tmp_path / "detections.db"
+    court, long = recu(requete("a.fr")), recu(requete("un-nom-bien-plus-long.example.com"))
+    connexion = ouvrir_base(base)
+
+    enregistrer(connexion, noter(reseau, [court, long]))
+
+    with sqlite3.connect(base) as lecture:
+        tailles = [t for (t,) in lecture.execute("SELECT taille FROM requetes ORDER BY rowid")]
+    lecture.close()
+    assert tailles == [len(court[UDP].payload), len(long[UDP].payload)]
 
 
 # --- surveiller ---
