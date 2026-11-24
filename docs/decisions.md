@@ -103,6 +103,9 @@ sur une **copie dédiée** de l'interpréteur (`python-capture`), utilisée par 
 Python commun, elle aurait empêché le dashboard (sans capacité) de démarrer. `no-new-privileges`
 est activé pour le dashboard mais pas pour `sniff`, où il annulerait cette capacité. Le
 dashboard n'est publié que sur `127.0.0.1`. Image lourde (~3,8 Go, dont 1,9 Go de TensorFlow) :
-`tensorflow-cpu` n'est pas retenu, il changerait la dépendance pour tous (pas de roues macOS) pour
-un gain partiel ; la vraie piste serait de prédire sans TensorFlow (Keras 3, backend NumPy), à
-décider après la soutenance.
+`tensorflow-cpu` (roue de 274 Mo contre 572 Mo) est possible sous Linux x86_64 avec des marqueurs
+de plateforme, mais changerait la dépendance de l'environnement de développement à deux jours
+de la soutenance : reporté à une issue dédiée, avec l'autre piste (prédire sans TensorFlow,
+Keras 3 en backend NumPy). Les binaires setuid de l'image de base restent présents dans `sniff`
+(sans no-new-privileges) : risque faible, seule NET_RAW est dans l'ensemble limitant et la racine
+est en lecture seule.

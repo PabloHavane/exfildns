@@ -5,8 +5,8 @@
 # Prérequis : le modèle entraîné dans ./models/exfildns.keras (exfildns train ou le notebook).
 
 x-commun: &commun
-  build: .
   image: exfildns:local
+  # Même uid que l'utilisateur de l'image : filet de sécurité si l'image changeait
   user: "10001"
   read_only: true
   # Heures affichées dans le fuseau local (le conteneur est en UTC par défaut)
@@ -15,12 +15,11 @@ x-commun: &commun
   tmpfs:
     - /tmp
   restart: unless-stopped
-  volumes:
-    - ./models:/models:ro
 
 services:
   sniff:
     <<: *commun
+    build: .  # une seule construction : le dashboard réutilise l'image exfildns:local
     # Réseau de l'hôte : voir et analyser le trafic DNS de la machine
     network_mode: host
     cap_drop: [ALL]

@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Image unique d'exfildns, utilisée par les deux services de compose.yaml :
 #   sniff      capture DNS en direct (seul à avoir la capacité NET_RAW)
 #   dashboard  supervision Streamlit, sans aucun privilège
