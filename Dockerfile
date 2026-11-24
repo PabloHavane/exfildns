@@ -7,16 +7,21 @@
 # --- Étape 1 : environnement Python construit par uv, à partir de uv.lock ---
 FROM python:3.12.16-slim-bookworm@sha256:82836454a795d9d75549a9e157fd08dbac6c383292cf89e99f4248a97ce6b2ff AS construction
 COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /usr/local/bin/uv
+# Délai de téléchargement large : les roues de TensorFlow pèsent plus de 600 Mo
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    UV_HTTP_TIMEOUT=300
 WORKDIR /app
 # Dépendances d'abord (couche en cache tant que uv.lock ne change pas), puis le code
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
+# Cache uv partagé entre les builds (hors image) : pas de nouveau téléchargement à chaque fois
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-install-project
 COPY README.md ./
 COPY src ./src
-RUN uv sync --locked --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-editable
 
 # --- Étape 2 : image d'exécution, sans uv ni outils de construction ---
 FROM python:3.12.16-slim-bookworm@sha256:82836454a795d9d75549a9e157fd08dbac6c383292cf89e99f4248a97ce6b2ff
