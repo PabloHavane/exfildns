@@ -11,10 +11,8 @@ from sklearn.metrics import (
     recall_score,
 )
 
+from exfildns import SEUIL  # noqa: F401 (réexporté : exfildns.evaluation.SEUIL)
 from exfildns.model import GRAINE, predire_proba
-
-# Seuil de décision : une requête est signalée si sa probabilité d'exfiltration dépasse 0,5.
-SEUIL = 0.5
 
 
 def evaluer_predictions(y, proba, seuil: float = SEUIL) -> dict[str, float | int]:

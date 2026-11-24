@@ -1,4 +1,6 @@
 import sqlite3
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -483,3 +485,13 @@ def test_app_capture_reglages_appliques(tmp_path, modele, monkeypatch):
 
     assert not at.exception
     assert {m.label: m.value for m in at.tabs[1].metric}["Alertes"] == "0"
+
+
+def test_dashboard_et_alertes_sans_tensorflow():
+    # le dashboard démarre vite : il ne charge TensorFlow que pour analyser une capture (#52)
+    code = "import sys, exfildns.dashboard, exfildns.alertes; print('tensorflow' in sys.modules)"
+    sortie = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert sortie.stdout.strip() == "False"

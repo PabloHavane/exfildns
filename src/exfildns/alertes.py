@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from exfildns.evaluation import SEUIL
+from exfildns import SEUIL
 
 MIN_REQUETES = 5
 NOM_INCOMPLET = "(nom incomplet dans la capture)"

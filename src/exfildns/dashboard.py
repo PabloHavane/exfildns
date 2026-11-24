@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from exfildns import SEUIL
 from exfildns.alertes import MIN_REQUETES, alertes
-from exfildns.evaluation import SEUIL
 
 BASE_PAR_DEFAUT = "detections.db"
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
