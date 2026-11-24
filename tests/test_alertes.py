@@ -91,6 +91,7 @@ def test_alerte_au_dela_du_minimum():
     assert ligne["sources"] == 1
     assert (ligne["debut"], ligne["fin"]) == (0.0, 4.0)
     assert ligne["score_moyen"] == pytest.approx(0.99)
+    assert ligne["score_max"] >= ligne["score_moyen"]
 
 
 def test_pas_d_alerte_sous_le_minimum():
@@ -133,6 +134,7 @@ def test_plusieurs_alertes_triees_et_sources_comptees():
     assert resume["domaine"].tolist() == ["gros.example", "petit.example"]
     assert resume["requetes_suspectes"].tolist() == [8, 3]
     assert resume["sources"].tolist() == [2, 1]
+    assert resume["postes"].str.count(",").tolist() == [1, 0]
 
 
 def test_noms_coupes_regroupes():

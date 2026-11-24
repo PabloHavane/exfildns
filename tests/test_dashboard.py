@@ -19,15 +19,14 @@ from exfildns.dashboard import (
     activite_dns,
     analyser_capture,
     classement,
+    derniere_requete,
     en_heure,
     graduations,
     graphique_activite,
-    indicateurs,
     instants_alertes,
     intervalle,
     lire_requetes,
     pas_graduations,
-    tableau_alertes,
     tableau_requetes,
 )
 from exfildns.features import features_dataframe
@@ -74,6 +73,11 @@ def base_demo(tmp_path):
     base = tmp_path / "detections.db"
     remplir(base, lignes)
     return base
+
+
+def texte(bloc):
+    """Tout le texte Markdown et les légendes d'un bloc de l'application (AppTest)."""
+    return "\n".join(e.value for e in [*bloc.markdown, *bloc.caption])
 
 
 def app(base, monkeypatch):
@@ -217,18 +221,6 @@ def test_en_heure_fuseau_local():
     assert (heures.iloc[1] - heures.iloc[0]) == pd.Timedelta(minutes=1)
 
 
-def test_indicateurs(base_demo):
-    requetes = lire_requetes(base_demo)
-    resume = alertes(requetes, 0.5, 5)
-
-    assert indicateurs(requetes, 0.5, resume) == {
-        "analysees": 30,
-        "suspectes": 9,  # le CDN suspect est compté, mais sans alerte (liste blanche)
-        "alertes": 1,
-        "postes": 4,
-    }
-
-
 def test_activite_dns():
     requetes = pd.DataFrame(
         {"timestamp": [0.0, 10.0, 70.0, 75.0], "score": [0.1, 0.9, 0.9, 0.2], "src": ["a"] * 4}
@@ -346,17 +338,6 @@ def test_classement():
     assert list(tableau.columns) == ["poste", "requêtes suspectes"]
 
 
-def test_tableau_alertes(base_demo):
-    resume = alertes(lire_requetes(base_demo), 0.5, 5)
-
-    tableau = tableau_alertes(resume)
-
-    assert tableau.loc[0, "domaine"] == "attaquant.example"
-    assert tableau.loc[0, "requêtes suspectes"] == 8
-    assert tableau.loc[0, "postes"] == 1
-    assert len(tableau.loc[0, "début"]) == len("24/11 14:00:00")
-
-
 def test_tableau_requetes_plus_recentes_d_abord():
     suspectes = pd.DataFrame(
         {
@@ -402,17 +383,21 @@ def test_app_affiche_l_alerte(base_demo, monkeypatch):
     assert not at.exception
     valeurs = {m.label: m.value for m in at.metric}
     assert valeurs == {
-        "Requêtes analysées": "29",
-        "Requêtes suspectes": "9",
-        "Alertes": "1",
-        "Postes observés": "3",
+        "Analysées": "29",
+        "Suspectes": "9",
+        "Taux suspect": "31.0 %",
+        "Alertes ouvertes": "1",
+        "Postes": "3",
+        "Domaines parents": "22",  # site0.fr … site19.fr, attaquant.example, cloudfront.net
+        "Score max": "0.970",
+        "TXT / NULL": "27.6 %",
     }
-    assert "attaquant.example" in at.error[0].value
-    alerte = at.tabs[0].dataframe[0].value
-    assert alerte.loc[0, "domaine"] == "attaquant.example"
-    assert len(at.tabs[0].dataframe) == 4  # alertes, postes, serveurs, requêtes suspectes
-    assert at.tabs[0].dataframe[1].value.iloc[0]["poste"] == "10.0.0.66"
-    assert at.tabs[0].dataframe[2].value.columns[0] == "serveur DNS"
+    # file d'alertes : le domaine est échappé pour le Markdown
+    assert "attaquant\\.example" in texte(at.tabs[0])
+    assert "File d'alertes (1)" in [s.value for s in at.tabs[0].subheader]
+    assert len(at.tabs[0].dataframe) == 3  # postes, serveurs, requêtes suspectes
+    assert at.tabs[0].dataframe[0].value.iloc[0]["poste"] == "10.0.0.66"
+    assert at.tabs[0].dataframe[1].value.columns[0] == "serveur DNS"
 
 
 def test_app_seuil_plus_strict(base_demo, monkeypatch):
@@ -421,8 +406,8 @@ def test_app_seuil_plus_strict(base_demo, monkeypatch):
     at.slider(key="seuil").set_value(1.0).run()
 
     assert not at.exception
-    assert {m.label: m.value for m in at.metric}["Requêtes suspectes"] == "0"
-    assert at.success
+    assert {m.label: m.value for m in at.metric}["Suspectes"] == "0"
+    assert "Aucune alerte" in texte(at.tabs[0])
     assert len(at.tabs[0].dataframe) == 0
 
 
@@ -432,18 +417,18 @@ def test_app_minimum_de_requetes(base_demo, monkeypatch):
     at.number_input(key="min_requetes").set_value(20).run()
 
     assert not at.exception
-    assert {m.label: m.value for m in at.metric}["Alertes"] == "0"
-    assert "Aucune alerte" in at.success[0].value
+    assert {m.label: m.value for m in at.metric}["Alertes ouvertes"] == "0"
+    assert "Aucune alerte" in texte(at.tabs[0])
 
 
 def test_app_periode(base_demo, monkeypatch):
     at = app(base_demo, monkeypatch).run()
 
     at.selectbox(key="periode").set_value("tout").run()
-    assert {m.label: m.value for m in at.metric}["Requêtes analysées"] == "30"
+    assert {m.label: m.value for m in at.metric}["Analysées"] == "30"
 
     at.selectbox(key="periode").set_value("5 dernières minutes").run()
-    assert {m.label: m.value for m in at.metric}["Requêtes analysées"] == "29"
+    assert {m.label: m.value for m in at.metric}["Analysées"] == "29"
 
 
 def test_app_sans_rafraichissement(base_demo, monkeypatch):
@@ -452,7 +437,7 @@ def test_app_sans_rafraichissement(base_demo, monkeypatch):
     at.toggle(key="auto").set_value(False).run()
 
     assert not at.exception
-    assert {m.label: m.value for m in at.metric}["Alertes"] == "1"
+    assert {m.label: m.value for m in at.metric}["Alertes ouvertes"] == "1"
 
 
 # --- commande exfildns dashboard ---
@@ -567,10 +552,11 @@ def test_app_capture_avec_tunneling(tmp_path, modele, monkeypatch):
     assert not at.exception
     onglet = at.tabs[2]
     valeurs = {m.label: m.value for m in onglet.metric}
-    assert valeurs["Requêtes analysées"] == "16"
-    assert valeurs["Requêtes suspectes"] == "6"
-    assert valeurs["Alertes"] == "1"
-    assert "attaquant.example" in onglet.error[0].value
+    assert valeurs["Analysées"] == "16"
+    assert valeurs["Suspectes"] == "6"
+    assert valeurs["Taux suspect"] == "37.5 %"
+    assert valeurs["Alertes ouvertes"] == "1"
+    assert "attaquant\\.example" in texte(onglet)
     assert "tunnel.pcap" in onglet.caption[0].value
 
 
@@ -582,8 +568,8 @@ def test_app_capture_benigne(tmp_path, modele, monkeypatch):
 
     onglet = at.tabs[2]
     assert not at.exception
-    assert {m.label: m.value for m in onglet.metric}["Alertes"] == "0"
-    assert "Aucune alerte" in onglet.success[0].value
+    assert {m.label: m.value for m in onglet.metric}["Alertes ouvertes"] == "0"
+    assert "Aucune alerte" in texte(onglet)
 
 
 def test_app_capture_sans_dns(tmp_path, modele, monkeypatch):
@@ -618,12 +604,12 @@ def test_app_capture_modele_absent(tmp_path, monkeypatch):
 def test_app_capture_reglages_appliques(tmp_path, modele, monkeypatch):
     contenu = octets_pcap(tmp_path, [requete(q, dst="10.6.6.6") for q in noms_exfil(6, graine=15)])
     at = deposer(app_capture(tmp_path, modele, monkeypatch), "tunnel.pcap", contenu)
-    assert {m.label: m.value for m in at.tabs[2].metric}["Alertes"] == "1"
+    assert {m.label: m.value for m in at.tabs[2].metric}["Alertes ouvertes"] == "1"
 
     at.number_input(key="min_requetes").set_value(10).run()
 
     assert not at.exception
-    assert {m.label: m.value for m in at.tabs[2].metric}["Alertes"] == "0"
+    assert {m.label: m.value for m in at.tabs[2].metric}["Alertes ouvertes"] == "0"
 
 
 def test_dashboard_et_alertes_sans_tensorflow():
@@ -889,3 +875,85 @@ def test_app_onglet_requetes_cle_du_tableau_change_a_chaque_lecture(base_demo, m
 
     at.button(key="actualiser_requetes").click().run()
     assert onglet_requetes(at).dataframe[0].key != avant
+
+
+# --- bandeau d'état, variations, file d'alertes ---
+
+
+def test_derniere_requete(base_demo, tmp_path):
+    assert derniere_requete(base_demo) == pytest.approx(time.time() - 30, abs=5)
+    vide = tmp_path / "vide.db"
+    ouvrir_base(vide).close()
+    assert derniere_requete(vide) is None
+
+
+def test_app_bandeau(base_demo, monkeypatch, tmp_path):
+    modele = tmp_path / "exfildns.keras"
+    modele.write_bytes(b"poids")
+    monkeypatch.setenv("EXFILDNS_MODELE", str(modele))
+
+    at = app(base_demo, monkeypatch).run()
+
+    bandeau = at.markdown[0].value
+    assert 'class="bandeau"' in bandeau
+    assert "capteur " in bandeau and "dernière requête il y a " in bandeau
+    assert "exfildns.keras" in bandeau and "seuil 0.50" in bandeau
+    assert not at.title  # le bandeau remplace le gros titre
+
+
+def test_app_bandeau_sans_base_ni_modele(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXFILDNS_MODELE", str(tmp_path / "absent.keras"))
+
+    at = app(tmp_path / "absente.db", monkeypatch).run()
+
+    assert "aucune requête reçue" in at.markdown[0].value
+    assert "modèle absent" in at.markdown[0].value
+
+
+def test_app_variations_par_rapport_a_la_periode_precedente(base_demo, monkeypatch):
+    maintenant = time.time()
+    # période précédente (il y a 1 h à 2 h) : 4 requêtes bénignes
+    remplir(
+        base_demo,
+        [(maintenant - 5400 + i, "10.0.0.1", "10.0.0.254", "avant.fr", 1, 0.01) for i in range(4)],
+    )
+
+    at = app(base_demo, monkeypatch).run()
+
+    deltas = {m.label: m.delta for m in at.metric}
+    assert deltas["Analysées"] == "+25"  # 29 contre 4
+    assert deltas["Suspectes"] == "+9"
+    assert deltas["Alertes ouvertes"] == "+1"
+    assert deltas["Score max"] == "+0.960"  # 0.97 contre 0.01
+
+
+def test_app_pas_de_variation_si_la_periode_precedente_est_vide(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()  # rien entre il y a 1 h et il y a 2 h
+
+    assert all(not m.delta for m in at.metric)
+
+
+def test_app_pas_de_variation_sur_toute_la_base(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    at.selectbox(key="periode").set_value("tout").run()
+
+    assert all(not m.delta for m in at.metric)
+
+
+def test_app_file_d_alertes_nom_malveillant_echappe(tmp_path, monkeypatch):
+    base = tmp_path / "detections.db"
+    maintenant = time.time()
+    remplir(
+        base,
+        [
+            (maintenant - 10 + i, "10.0.0.6", "10.0.0.254", f"{i}.x.[clic](http:", 16, 0.99)
+            for i in range(6)
+        ],
+    )
+
+    at = app(base, monkeypatch).run()
+
+    cartes = texte(at.tabs[0])
+    assert "\\[clic\\]\\(http\\:" in cartes
+    assert "MOYENNE" in cartes  # score net mais pas assez de requêtes pour « haute »

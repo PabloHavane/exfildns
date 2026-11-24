@@ -8,6 +8,7 @@ Les fonctions de préparation des données sont pures et testées sans navigateu
 n'est construite que lorsque Streamlit exécute ce fichier (`page()`, tout en bas).
 """
 
+import html
 import io
 import os
 import sqlite3
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from exfildns import SEUIL, detail
+from exfildns import SEUIL, __version__, detail, synthese
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
 
 BASE_PAR_DEFAUT = "detections.db"
@@ -27,7 +28,19 @@ MODELE_PAR_DEFAUT = "models/exfildns.keras"
 EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
 CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
 RAFRAICHISSEMENT = 5  # secondes
+ALERTES_MAX = 20  # cartes affichées dans la file d'alertes
 LIGNES_MAX = 5000  # requêtes affichées dans l'onglet « Requêtes » (les plus récentes)
+
+# Bandeau d'état (une ligne, en tête de page)
+STYLE_BANDEAU = """<style>
+.bandeau { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1.2rem;
+  font-size: 0.9rem; padding: 0.4rem 0 0.6rem; border-bottom: 1px solid rgba(128,128,128,0.3); }
+.bandeau .marque { font-weight: 700; font-size: 1.1rem; }
+.bandeau .pastille { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%;
+  margin-right: 0.35rem; vertical-align: middle; }
+.bandeau .discret { opacity: 0.7; }
+</style>"""
+COULEURS_CAPTEUR = {"green": "#2ca02c", "orange": "#ff9f1c", "red": "#e45756"}
 
 # Mise en évidence du nom découpé label par label (onglet « Requêtes »)
 STYLE_QNAME = """<style>
@@ -78,37 +91,38 @@ def lire_requetes(base: str | Path, depuis: float | None = None) -> pd.DataFrame
     if depuis is not None:
         sql += " WHERE timestamp >= ?"
         params = (depuis,)
-    uri = f"{Path(base).resolve().as_uri()}?mode=ro"
-    try:
-        requetes = _lire(uri, sql, params)
-    except pd.errors.DatabaseError as erreur:
-        if "readonly" not in str(erreur):
-            raise
-        requetes = _lire(uri + "&immutable=1", sql, params)
+    requetes = _lecture_seule(base, sql + " ORDER BY timestamp", params)
     if "taille" not in requetes:  # base écrite par une version antérieure, pas encore migrée
         requetes["taille"] = pd.NA
     return requetes.astype({"qtype": "Int64", "score": float, "taille": "Int64"})
 
 
+def derniere_requete(base: str | Path) -> float | None:
+    """Instant (timestamp Unix) de la dernière requête enregistrée, `None` si la base est vide."""
+    resultat = _lecture_seule(base, "SELECT MAX(timestamp) AS t FROM requetes", ())
+    return None if pd.isna(resultat.loc[0, "t"]) else float(resultat.loc[0, "t"])
+
+
+def _lecture_seule(base: str | Path, sql: str, params: tuple) -> pd.DataFrame:
+    """Exécute `sql` sur la base ouverte en lecture seule (voir `lire_requetes`)."""
+    uri = f"{Path(base).resolve().as_uri()}?mode=ro"
+    try:
+        return _lire(uri, sql, params)
+    except pd.errors.DatabaseError as erreur:
+        if "readonly" not in str(erreur):
+            raise
+        return _lire(uri + "&immutable=1", sql, params)
+
+
 def _lire(uri: str, sql: str, params: tuple) -> pd.DataFrame:
     with closing(sqlite3.connect(uri, uri=True)) as connexion:
-        return pd.read_sql_query(sql + " ORDER BY timestamp", connexion, params=params)
+        return pd.read_sql_query(sql, connexion, params=params)
 
 
 def en_heure(timestamps: pd.Series) -> pd.Series:
     """Timestamps Unix -> dates à l'heure locale de la machine."""
     fuseau = datetime.now().astimezone().tzinfo
     return pd.to_datetime(timestamps, unit="s", utc=True).dt.tz_convert(fuseau)
-
-
-def indicateurs(requetes: pd.DataFrame, seuil: float, resume: pd.DataFrame) -> dict[str, int]:
-    """Chiffres clés de la période : requêtes analysées, suspectes, alertes, postes."""
-    return {
-        "analysees": len(requetes),
-        "suspectes": int((requetes["score"] >= seuil).sum()),
-        "alertes": len(resume),
-        "postes": requetes["src"].nunique(),
-    }
 
 
 def intervalle(requetes: pd.DataFrame) -> int:
@@ -255,20 +269,6 @@ def graphique_activite(
     return barres + marqueurs
 
 
-def tableau_alertes(resume: pd.DataFrame) -> pd.DataFrame:
-    """Alertes mises en forme pour l'affichage (heures lisibles, colonnes en français)."""
-    return pd.DataFrame(
-        {
-            "domaine": resume["domaine"],
-            "requêtes suspectes": resume["requetes_suspectes"],
-            "score moyen": resume["score_moyen"].round(3),
-            "postes": resume["sources"],
-            "début": en_heure(resume["debut"]).dt.strftime("%d/%m %H:%M:%S"),
-            "fin": en_heure(resume["fin"]).dt.strftime("%d/%m %H:%M:%S"),
-        }
-    )
-
-
 def tableau_requetes(suspectes: pd.DataFrame, n: int = 100) -> pd.DataFrame:
     """Les `n` requêtes suspectes les plus récentes, mises en forme."""
     recentes = suspectes.sort_values("timestamp", ascending=False).head(n)
@@ -320,41 +320,121 @@ def analyser_capture(contenu: bytes, chemin_modele: str) -> pd.DataFrame:
 # --- Interface (exécutée par Streamlit uniquement) ---
 
 
-def afficher_resultats(st, requetes: pd.DataFrame, seuil: float, min_requetes: int) -> None:
-    """Chiffres clés, alertes, activité et requêtes suspectes d'un ensemble de requêtes notées."""
+def afficher_indicateurs(st, chiffres: dict, variations: dict) -> None:
+    """Rangée de chiffres clés ; variation par rapport à la période précédente si connue.
+
+    `delta_color="inverse"` : une hausse est mauvais signe (rouge), comme les requêtes suspectes.
+    """
+
+    def ecart(cle: str, format_: str = "{:+d}") -> str | None:
+        v = variations[cle]
+        return None if v is None else format_.format(v)
+
+    colonnes = st.columns(8)
+    # volumes : une hausse n'est ni bonne ni mauvaise en soi, variation en gris
+    colonnes[0].metric("Analysées", chiffres["analysees"], ecart("analysees"), delta_color="off")
+    colonnes[1].metric(
+        "Suspectes", chiffres["suspectes"], ecart("suspectes"), delta_color="inverse"
+    )
+    colonnes[2].metric(
+        "Taux suspect",
+        f"{chiffres['taux_suspect']:.1f} %",
+        ecart("taux_suspect", "{:+.1f} pts"),
+        delta_color="inverse",
+    )
+    colonnes[3].metric(
+        "Alertes ouvertes",
+        chiffres["alertes"],
+        ecart("alertes"),
+        delta_color="inverse",
+        help="Toutes les alertes de la période (pas encore de statut).",
+    )
+    colonnes[4].metric("Postes", chiffres["postes"], ecart("postes"), delta_color="off")
+    colonnes[5].metric(
+        "Domaines parents", chiffres["domaines"], ecart("domaines"), delta_color="off"
+    )
+    score_max = chiffres["score_max"]
+    colonnes[6].metric(
+        "Score max",
+        "—" if pd.isna(score_max) else f"{score_max:.3f}",
+        ecart("score_max", "{:+.3f}"),
+        delta_color="inverse",
+    )
+    colonnes[7].metric(
+        "TXT / NULL",
+        f"{chiffres['txt_null']:.1f} %",
+        ecart("txt_null", "{:+.1f} pts"),
+        delta_color="inverse",
+        help="Part des requêtes TXT ou NULL, types prisés des outils de tunneling.",
+    )
+
+
+def afficher_file_alertes(st, resume: pd.DataFrame, min_requetes: int) -> None:
+    """File d'alertes : une carte par alerte, la plus grave et la plus récente en tête."""
+    file = synthese.file_alertes(resume, min_requetes)
+    st.subheader(f"File d'alertes ({len(file)})")
+    if file.empty:
+        st.caption("Aucune alerte sur la période : pas d'exfiltration détectée.")
+        return
+    with st.container(height=380, border=False):
+        for alerte in file.head(ALERTES_MAX).itertuples():
+            with st.container(border=True):
+                couleur = synthese.SEVERITES[alerte.severite]
+                # le domaine vient du réseau : échappé avant d'entrer dans du Markdown
+                st.markdown(
+                    f":{couleur}-badge[{alerte.severite.upper()}] "
+                    f"**{synthese.echapper_markdown(alerte.domaine)}**"
+                )
+                st.caption(
+                    f"{alerte.requetes_suspectes} requêtes suspectes · score max "
+                    f"{alerte.score_max:.3f} · postes : "
+                    f"{synthese.echapper_markdown(alerte.postes)}"
+                )
+                debut, fin = en_heure(pd.Series([alerte.debut, alerte.fin])).dt.strftime(
+                    "%d/%m %H:%M:%S"
+                )
+                st.caption(f"du {debut} au {fin}")
+        if len(file) > ALERTES_MAX:
+            st.caption(f"… et {len(file) - ALERTES_MAX} autre(s).")
+
+
+def afficher_resultats(
+    st,
+    requetes: pd.DataFrame,
+    seuil: float,
+    min_requetes: int,
+    precedentes: pd.DataFrame | None = None,
+) -> None:
+    """Chiffres clés, timeline, file d'alertes et requêtes suspectes d'un ensemble de requêtes.
+
+    `precedentes` : requêtes de la période précédente, pour afficher les variations (aucune
+    si elle est vide).
+    """
     resume = alertes(requetes, seuil, min_requetes)
     suspectes = requetes[requetes["score"] >= seuil]
-    chiffres = indicateurs(requetes, seuil, resume)
-
-    colonnes = st.columns(4)
-    colonnes[0].metric("Requêtes analysées", chiffres["analysees"])
-    colonnes[1].metric("Requêtes suspectes", chiffres["suspectes"])
-    colonnes[2].metric("Alertes", chiffres["alertes"])
-    colonnes[3].metric("Postes observés", chiffres["postes"])
+    chiffres = synthese.indicateurs(requetes, seuil, resume)
+    avant = None
+    # période précédente vide (capture arrêtée) : une variation « +625 » ne dirait rien
+    if precedentes is not None and not precedentes.empty:
+        avant = synthese.indicateurs(precedentes, seuil, alertes(precedentes, seuil, min_requetes))
+    afficher_indicateurs(st, chiffres, synthese.ecarts(chiffres, avant))
 
     if requetes.empty:
         st.info("Aucune requête DNS à analyser.")
         return
-    if resume.empty:
-        st.success("Aucune alerte : pas d'exfiltration détectée.")
-    else:
-        domaines = ", ".join(resume["domaine"].head(3))
-        st.error(f"{len(resume)} alerte(s) : exfiltration DNS probable vers {domaines}.")
-        st.dataframe(
-            tableau_alertes(resume),
-            hide_index=True,
-            width="stretch",
-            column_config={"score moyen": st.column_config.NumberColumn(format="%.3f")},
-        )
 
-    minutes = intervalle(requetes)
-    st.subheader(f"Activité DNS par {INTERVALLES[minutes]}")
-    graphique = graphique_activite(
-        activite_dns(requetes, seuil, minutes),
-        minutes,
-        instants_alertes(requetes, seuil, min_requetes),
-    )
-    st.altair_chart(graphique, width="stretch")
+    gauche, droite = st.columns([2, 1], gap="large")
+    with gauche:
+        minutes = intervalle(requetes)
+        st.subheader(f"Activité DNS par {INTERVALLES[minutes]}")
+        graphique = graphique_activite(
+            activite_dns(requetes, seuil, minutes),
+            minutes,
+            instants_alertes(requetes, seuil, min_requetes),
+        )
+        st.altair_chart(graphique, width="stretch")
+    with droite:
+        afficher_file_alertes(st, resume, min_requetes)
 
     if suspectes.empty:
         return
@@ -381,9 +461,44 @@ def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) ->
         )
         return
     duree = PERIODES[periode]
-    requetes = lire_requetes(base, None if duree is None else time.time() - duree)
-    st.caption(f"Période : {periode}.")
-    afficher_resultats(st, requetes, seuil, min_requetes)
+    if duree is None:  # toute la base : pas de période précédente
+        afficher_resultats(st, lire_requetes(base), seuil, min_requetes)
+        return
+    # une seule lecture pour la période et la précédente (variations des chiffres clés)
+    debut = time.time() - duree
+    lues = lire_requetes(base, debut - duree)
+    afficher_resultats(
+        st,
+        lues[lues["timestamp"] >= debut],
+        seuil,
+        min_requetes,
+        precedentes=lues[lues["timestamp"] < debut],
+    )
+
+
+def bandeau(st, base: str, chemin_modele: str, seuil: float, periode: str) -> None:
+    """Bandeau d'état sur une ligne : capteur, dernière requête, modèle, seuil, mise à jour."""
+    maintenant = time.time()
+    derniere = derniere_requete(base) if Path(base).exists() else None
+    etat, couleur = synthese.etat_capteur(derniere, maintenant)
+    depuis = (
+        "aucune requête reçue"
+        if derniere is None
+        else f"dernière requête il y a {synthese.duree_lisible(maintenant - derniere)}"
+    )
+    morceaux = [
+        '<span class="marque">exfildns</span>',
+        f'<span><span class="pastille" style="background:{COULEURS_CAPTEUR[couleur]}"></span>'
+        f"capteur {etat}</span>",
+        f"<span>{depuis}</span>",
+        f'<span class="discret">modèle {html.escape(synthese.infos_modele(chemin_modele))}'
+        f" · v{__version__}</span>",
+        f"<span>seuil {seuil:.2f} · {periode}</span>",
+        f'<span class="discret">mis à jour à {datetime.now():%H:%M:%S}</span>',
+    ]
+    st.markdown(
+        STYLE_BANDEAU + f'<div class="bandeau">{"".join(morceaux)}</div>', unsafe_allow_html=True
+    )
 
 
 def requetes_figees(st, base: str, periode: str, seuil: float) -> pd.DataFrame:
@@ -612,7 +727,6 @@ def page() -> None:
     import streamlit as st
 
     st.set_page_config(page_title="exfildns", layout="wide")
-    st.title("exfildns — détection d'exfiltration DNS")
     base = os.environ.get("EXFILDNS_BASE", BASE_PAR_DEFAUT)
     chemin_modele = os.environ.get("EXFILDNS_MODELE", MODELE_PAR_DEFAUT)
 
@@ -626,11 +740,18 @@ def page() -> None:
         auto = st.toggle(f"Rafraîchir toutes les {RAFRAICHISSEMENT} s", True, key="auto")
         st.caption(f"Base : `{base}`")
 
+    rafraichissement = RAFRAICHISSEMENT if auto else None
+
+    @st.fragment(run_every=rafraichissement)
+    def etat() -> None:
+        bandeau(st, base, chemin_modele, seuil, periode)
+
+    etat()
     direct, onglet_requetes, importee = st.tabs(
         ["Supervision en direct", "Requêtes", "Analyser une capture"]
     )
 
-    @st.fragment(run_every=RAFRAICHISSEMENT if auto else None)
+    @st.fragment(run_every=rafraichissement)
     def vue_directe() -> None:
         supervision(st, base, seuil, int(min_requetes), periode)
 
