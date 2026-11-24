@@ -45,7 +45,7 @@ def lire_question(dns: bytes) -> tuple[str, int | None]:
     return ".".join(labels), None
 
 
-def requete_dns(paquet) -> tuple | None:
+def requete_dns(paquet) -> tuple[float, str, str, str, int | None] | None:
     """Transforme un paquet scapy en requête `(timestamp, src, dst, qname, qtype)`, ou `None`.
 
     Seules les requêtes DNS (UDP, port 53, IPv4 ou IPv6) sont gardées : réponses et trafic

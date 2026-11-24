@@ -2,7 +2,7 @@ from conftest import NOM_EXFIL, ecrire_pcap, requete
 from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.inet6 import IPv6
-from scapy.layers.l2 import Ether
+from scapy.layers.l2 import CookedLinux, Ether
 
 from exfildns.pcap import (
     COLONNES,
@@ -99,6 +99,15 @@ def test_requete_dns_paquet_recu_du_reseau():
     _, src, dst, qname, qtype = requete_dns(paquet)
 
     assert (src, dst, qname, qtype) == ("192.168.20.38", "8.8.8.8", "www.example.com", 1)
+
+
+def test_requete_dns_interface_any():
+    # capture sur l'interface « any » : en-tête Linux cooked capture au lieu d'Ethernet
+    dns = UDP(dport=53) / DNS(qd=DNSQR(qname="a.fr", qtype="TXT"))
+    construit = CookedLinux(proto=0x0800) / IP(src="10.0.0.2", dst="10.0.0.1") / dns
+    paquet = CookedLinux(bytes(construit))
+
+    assert requete_dns(paquet)[1:] == ("10.0.0.2", "10.0.0.1", "a.fr", 16)
 
 
 def test_requete_dns_paquet_tronque():
