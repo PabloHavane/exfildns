@@ -58,6 +58,9 @@ La CI (`.github/workflows/ci.yml`) exécute lint + formatage + tests sur chaque 
 - Les tests utilisent de petites données synthétiques construites dans les tests, jamais le dataset.
 - **Chaque nouvelle fonctionnalité arrive avec sa batterie de tests** (cas nominal, cas limites,
   erreurs), y compris le dashboard Streamlit (`streamlit.testing.v1.AppTest`).
+- **La documentation est toujours à jour** : tout changement de comportement visible, de
+  commande, de schéma de base ou de module met à jour `README.md` et `docs/` **dans la même PR**
+  (pas après coup). Le relecteur vérifie que la doc correspond au code.
 
 ## Architecture visée
 
