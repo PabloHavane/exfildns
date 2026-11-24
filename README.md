@@ -141,6 +141,20 @@ Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il
 pendant la capture. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
 
+## Déploiement avec Docker
+
+```bash
+cp .env.example .env        # choisir l'interface : celle de `ip route get 1.1.1.1`
+docker compose up -d --build
+# dashboard : http://localhost:8501
+```
+
+Deux services, une seule image : `sniff` (capture sur le réseau de l'hôte) et `dashboard`.
+Le modèle `models/exfildns.keras` doit exister (monté en lecture seule) ; les détections sont
+dans le volume `detections`. Les deux services tournent **sans root**, système de fichiers en
+lecture seule ; seule la capture a la capacité `NET_RAW`, et le dashboard n'est publié que sur
+`127.0.0.1`. `docker compose stop` arrête proprement la capture.
+
 ## Notebook de méthodologie
 
 [notebooks/methodologie.ipynb](notebooks/methodologie.ipynb) déroule la démarche d'apprentissage

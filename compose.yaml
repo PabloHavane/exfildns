@@ -9,6 +9,9 @@ x-commun: &commun
   image: exfildns:local
   user: "10001"
   read_only: true
+  # Heures affichées dans le fuseau local (le conteneur est en UTC par défaut)
+  environment:
+    TZ: ${TZ:-Europe/Paris}
   tmpfs:
     - /tmp
   restart: unless-stopped

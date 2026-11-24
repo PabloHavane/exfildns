@@ -94,3 +94,12 @@ Le dashboard ouvre la base SQLite en lecture seule (`mode=ro`) : il ne peut pas 
 détections et tourne sans privilège. Si la capture tourne en root et est arrêtée, il relit la base
 en `immutable` (plus aucun écrivain). Il n'écoute que sur `localhost` par défaut : il affiche les
 noms demandés et les adresses des postes, données sensibles à ne pas exposer sans le vouloir.
+
+## 2026-11-24 — Docker : une image, deux services, privilèges minimaux
+Image multi-étapes construite par uv depuis `uv.lock`, base épinglée par digest, sans données ni
+modèle (montés). Les deux services tournent en utilisateur non root (uid 10001), `cap_drop: ALL`,
+racine en lecture seule. La capture a besoin de `NET_RAW` : la capacité est posée par `setcap`
+sur une **copie dédiée** de l'interpréteur (`python-capture`), utilisée par `sniff` seul ; sur le
+Python commun, elle aurait empêché le dashboard (sans capacité) de démarrer. `no-new-privileges`
+est activé pour le dashboard mais pas pour `sniff`, où il annulerait cette capacité. Le
+dashboard n'est publié que sur `127.0.0.1`. Image lourde (~3,8 Go, dont 1,9 Go de TensorFlow).
