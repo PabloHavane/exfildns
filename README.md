@@ -155,7 +155,7 @@ dans le volume `detections`. Les deux services tournent **sans root**, système 
 lecture seule ; seule la capture a la capacité `NET_RAW`, et le dashboard n'est publié que sur
 `127.0.0.1`. `docker compose stop` arrête proprement la capture et le dashboard.
 Si la capture redémarre en boucle (modèle absent, interface inconnue, droits) : `docker compose
-logs sniff` donne la cause.
+logs sniff` donne la cause. Guide complet : [docs/deploiement.md](docs/deploiement.md).
 
 ## Notebook de méthodologie
 
@@ -174,6 +174,7 @@ Il réentraîne le réseau et réécrit `models/exfildns.keras`, le même modèl
 
 | Document | Contenu |
 |---|---|
+| [docs/deploiement.md](docs/deploiement.md) | Architecture, déploiement avec ou sans Docker, démo, dépannage, limites |
 | [docs/algorithme.md](docs/algorithme.md) | Fonctionnement de bout en bout, à lire pour la soutenance |
 | [docs/evaluation.md](docs/evaluation.md) | Protocole, métriques, résultats, importance des features, limites |
 | [docs/donnees.md](docs/donnees.md) | Analyse du dataset et pièges rencontrés |
