@@ -9,6 +9,7 @@ dependencies = [
     "pandas>=2.2",
     "scapy>=2.6",
     "scikit-learn>=1.5",
+    "streamlit>=1.67.0",
     "tensorflow>=2.21.0",
 ]
 

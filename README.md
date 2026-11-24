@@ -121,6 +121,21 @@ suspectes s'affichent au fil de l'eau. La capture demande **root** ou la capacit
 **`CAP_NET_RAW`** ; sans `-i`, scapy choisit l'interface de la route par défaut.
 Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
 
+### Superviser avec le dashboard
+
+```bash
+uv run exfildns dashboard [--base detections.db] [--port 8501] [--adresse localhost]
+```
+
+Ouvre <http://localhost:8501> : chiffres clés de la période (requêtes analysées, suspectes,
+alertes, postes), alertes par domaine, activité DNS par minute, postes et serveurs concernés,
+requêtes suspectes les plus récentes. Seuil, nombre de requêtes pour une alerte et période se
+règlent dans la barre latérale ; la vue se rafraîchit toutes les 5 secondes.
+
+Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il peut tourner
+pendant la capture. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
+et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
+
 ## Notebook de méthodologie
 
 [notebooks/methodologie.ipynb](notebooks/methodologie.ipynb) déroule la démarche d'apprentissage

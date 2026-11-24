@@ -88,3 +88,9 @@ La fonction compte sur le tableau qu'on lui donne, sans fenêtre glissante : `sc
 capture entière, le dashboard la période choisie (filtre SQL). Le code de sortie de `scan` vaut 1
 seulement s'il y a une **alerte** (et non plus dès une requête suspecte), pour que les scripts
 ne subissent pas les faux positifs isolés.
+
+## 2026-11-24 — Dashboard en lecture seule, sur localhost par défaut
+Le dashboard ouvre la base SQLite en lecture seule (`mode=ro`) : il ne peut pas altérer les
+détections et tourne sans privilège. Si la capture tourne en root et est arrêtée, il relit la base
+en `immutable` (plus aucun écrivain). Il n'écoute que sur `localhost` par défaut : il affiche les
+noms demandés et les adresses des postes, données sensibles à ne pas exposer sans le vouloir.

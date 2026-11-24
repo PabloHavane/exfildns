@@ -1,13 +1,15 @@
 """Point d'entrée en ligne de commande : `exfildns <commande>`."""
 
 import argparse
+import os
 import signal
+import subprocess
 import sys
 from pathlib import Path
 
 from scapy.error import Scapy_Exception
 
-from exfildns import __version__
+from exfildns import __version__, dashboard
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, lire_liste_blanche
 from exfildns.dataset import load_dataset
 from exfildns.evaluation import SEUIL, evaluer
@@ -137,6 +139,24 @@ def commande_sniff(args) -> int:
     return 0
 
 
+def commande_dashboard(args) -> int:
+    """Lance le serveur Streamlit sur le dashboard, en lui passant la base à lire."""
+    env = {**os.environ, "EXFILDNS_BASE": str(Path(args.base).resolve())}
+    commande = [sys.executable, "-m", "streamlit", "run", dashboard.__file__]
+    # localhost par défaut : le dashboard montre les noms demandés et les postes, il ne doit
+    # pas être exposé sur le réseau sans le vouloir (dans un conteneur : --adresse 0.0.0.0)
+    commande += ["--server.address", args.adresse, "--server.port", str(args.port)]
+    commande += ["--server.headless", "true"]
+    commande += ["--browser.gatherUsageStats", "false"]
+    print(
+        f"Dashboard : http://{args.adresse}:{args.port} (base {args.base}) ; Ctrl+C pour arrêter."
+    )
+    try:
+        return subprocess.call(commande, env=env)
+    except KeyboardInterrupt:
+        return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="exfildns",
@@ -196,6 +216,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--base", default=BASE_PAR_DEFAUT, help="base SQLite où enregistrer les requêtes"
     )
     sniff.set_defaults(fonction=commande_sniff)
+
+    tableau = commandes.add_parser("dashboard", help="ouvre le dashboard web de supervision")
+    tableau.add_argument("--base", default=BASE_PAR_DEFAUT, help="base SQLite écrite par sniff")
+    tableau.add_argument("--port", type=int, default=8501, help="port HTTP du dashboard")
+    tableau.add_argument(
+        "--adresse", default="localhost", help="adresse d'écoute (0.0.0.0 : tout le réseau)"
+    )
+    tableau.set_defaults(fonction=commande_dashboard)
     return parser
 
 
