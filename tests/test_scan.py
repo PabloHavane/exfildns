@@ -2,7 +2,7 @@ from conftest import ecrire_pcap, noms_benins, noms_exfil, requete
 from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import Ether
 
-from exfildns.cli import domaine_parent, main
+from exfildns.cli import main
 
 
 def test_scan_detecte_l_exfiltration(tmp_path, modele, capsys):
@@ -43,9 +43,3 @@ def test_scan_modele_absent(tmp_path, capsys):
 
     assert main(["scan", str(capture), "-m", str(tmp_path / "absent.keras")]) == 2
     assert "Modèle introuvable" in capsys.readouterr().err
-
-
-def test_domaine_parent():
-    assert domaine_parent("www.example.com", tronque=False) == "example.com"
-    assert domaine_parent("0.AbCd", tronque=True).startswith("(nom incomplet")
-    assert domaine_parent("", tronque=False) == "(racine)"

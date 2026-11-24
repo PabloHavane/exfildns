@@ -5,10 +5,10 @@ import signal
 import sys
 from pathlib import Path
 
-import pandas as pd
 from scapy.error import Scapy_Exception
 
 from exfildns import __version__
+from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, lire_liste_blanche
 from exfildns.dataset import load_dataset
 from exfildns.evaluation import SEUIL, evaluer
 from exfildns.features import FEATURES, features_dataframe
@@ -65,14 +65,10 @@ def commande_evaluate(args) -> int:
     return 0
 
 
-def domaine_parent(qname: str, tronque: bool) -> str:
-    """Deux derniers labels du nom (`exemple.com`), ou un marqueur si la question est coupée."""
-    if tronque:
-        return "(nom incomplet dans la capture)"
-    return ".".join(qname.split(".")[-2:]) or "(racine)"
-
-
 def commande_scan(args) -> int:
+    liste_blanche = list(LISTE_BLANCHE)
+    if args.liste_blanche:  # lu d'abord : un chemin erroné est signalé avant la longue analyse
+        liste_blanche += lire_liste_blanche(args.liste_blanche)
     requetes = read_dns_queries(args.capture)
     if requetes.empty:
         print(f"Aucune requête DNS dans {args.capture}.")
@@ -94,18 +90,18 @@ def commande_scan(args) -> int:
     print("\nServeurs DNS destinataires des requêtes suspectes :")
     for serveur, nombre in suspectes["dst"].value_counts().head(5).items():
         print(f"  {serveur:<40} {nombre}")
-    parents = [
-        domaine_parent(q, pd.isna(t))
-        for q, t in zip(suspectes["qname"], suspectes["qtype"], strict=True)
-    ]
-    print("\nDomaines parents les plus touchés :")
-    for parent, nombre in pd.Series(parents).value_counts().head(5).items():
-        print(f"  {parent:<40} {nombre}")
+    resume = alertes(requetes, args.seuil, args.min_requetes, liste_blanche)
+    print(
+        f"\nAlertes : domaines ayant reçu au moins {args.min_requetes} requêtes suspectes "
+        f"({len(resume)}) :"
+    )
+    for a in resume.head(5).itertuples():
+        print(f"  {a.domaine:<40} {a.requetes_suspectes}")
 
     print(f"\nRequêtes suspectes ({min(args.max, len(suspectes))} plus probables) :")
     for r in suspectes.head(args.max).itertuples():
         print(f"  {r.score:.3f}  {r.src} -> {r.dst}  {r.qname}")
-    return 1
+    return 1 if len(resume) else 0
 
 
 def commande_sniff(args) -> int:
@@ -178,6 +174,15 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("-m", "--modele", default=MODELE_PAR_DEFAUT, help="fichier .keras")
     scan.add_argument("--seuil", type=float, default=SEUIL, help="seuil de probabilité")
     scan.add_argument("--max", type=int, default=20, help="nombre de requêtes suspectes listées")
+    scan.add_argument(
+        "--min-requetes",
+        type=int,
+        default=MIN_REQUETES,
+        help="requêtes suspectes vers un même domaine pour lever une alerte",
+    )
+    scan.add_argument(
+        "--liste-blanche", help="fichier de domaines à ne jamais signaler (un par ligne)"
+    )
     scan.set_defaults(fonction=commande_scan)
 
     sniff = commandes.add_parser(

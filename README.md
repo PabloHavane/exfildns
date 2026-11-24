@@ -79,7 +79,7 @@ uv run exfildns scan capture.pcap [--seuil 0.5] [--max 20] [-m models/exfildns.k
 Serveurs DNS destinataires des requêtes suspectes :
   192.168.20.72                            41987
 
-Domaines parents les plus touchés :
+Alertes : domaines ayant reçu au moins 5 requêtes suspectes (1) :
   (nom incomplet dans la capture)          41987
 
 Requêtes suspectes (3 plus probables) :
@@ -87,7 +87,12 @@ Requêtes suspectes (3 plus probables) :
   ...
 ```
 
-Code de sortie : **0** si rien n'est suspect, **1** si au moins une requête est suspecte,
+Une **alerte** est levée quand un même domaine parent reçoit au moins `--min-requetes` (5)
+requêtes suspectes : un tunnel en envoie des milliers, un faux positif isolé une seule. Les
+domaines de la liste blanche (CDN et cloud connus, plus ceux d'un fichier `--liste-blanche`,
+un par ligne) n'alertent jamais.
+
+Code de sortie : **0** sans alerte, **1** si au moins une alerte est levée,
 **2** si le modèle est introuvable (une autre erreur, comme une capture introuvable, renvoie
 aussi 1 avec un message d'erreur). Dans un script :
 
