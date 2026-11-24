@@ -12,13 +12,14 @@ import io
 import os
 import sqlite3
 import time
+import zlib
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-from exfildns import SEUIL
+from exfildns import SEUIL, detail
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
 
 BASE_PAR_DEFAUT = "detections.db"
@@ -26,6 +27,16 @@ MODELE_PAR_DEFAUT = "models/exfildns.keras"
 EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
 CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
 RAFRAICHISSEMENT = 5  # secondes
+LIGNES_MAX = 5000  # requêtes affichées dans l'onglet « Requêtes » (les plus récentes)
+
+# Mise en évidence du nom découpé label par label (onglet « Requêtes »)
+STYLE_QNAME = """<style>
+.qname { font-family: monospace; font-size: 1.1rem; line-height: 2.2; word-break: break-all; }
+.qname .label { padding: 0.15rem 0.4rem; border-radius: 0.3rem; }
+.qname .suspect { background: rgba(228, 87, 86, 0.25); border: 1px solid #e45756; }
+.qname .parent { background: rgba(128, 128, 128, 0.2); }
+.qname .point { opacity: 0.6; padding: 0 0.1rem; }
+</style>"""
 
 # Timeline : largeur d'une barre en minutes, la plus petite qui donne au plus `BARRES_MAX` barres
 # (Altair refuse plus de 5000 lignes, soit 2500 barres de deux classes).
@@ -62,7 +73,7 @@ def lire_requetes(base: str | Path, depuis: float | None = None) -> pd.DataFrame
     et ne peut pas être recréé, on relit alors la base comme figée (`immutable`), ce qui est
     sûr puisque plus personne ne l'écrit.
     """
-    sql = "SELECT * FROM requetes"
+    sql = "SELECT rowid AS id, * FROM requetes"  # id : identifiant stable d'une requête
     params: tuple = ()
     if depuis is not None:
         sql += " WHERE timestamp >= ?"
@@ -272,6 +283,24 @@ def tableau_requetes(suspectes: pd.DataFrame, n: int = 100) -> pd.DataFrame:
     )
 
 
+def tableau_affiche(vue: pd.DataFrame) -> pd.DataFrame:
+    """Colonnes de l'onglet « Requêtes », libellés en français (même ordre de lignes que `vue`)."""
+    return pd.DataFrame(
+        {
+            "heure": en_heure(vue["timestamp"]),
+            "poste": vue["src"],
+            "nom demandé": vue["qname"],
+            "type": vue["type"],
+            "taille": vue["taille"],
+            "sous-domaine": vue["sous_domaine"],
+            "entropie": vue["entropy"],
+            "labels": vue["labels"],
+            "score": vue["score"],
+            "verdict": vue["verdict"],
+        }
+    ).reset_index(drop=True)
+
+
 def analyser_capture(contenu: bytes, chemin_modele: str) -> pd.DataFrame:
     """Requêtes DNS d'un fichier de capture (contenu brut), notées par le modèle.
 
@@ -357,6 +386,204 @@ def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) ->
     afficher_resultats(st, requetes, seuil, min_requetes)
 
 
+def requetes_figees(st, base: str, periode: str, seuil: float) -> pd.DataFrame:
+    """Tableau détaillé des requêtes de la période, relu seulement sur « Actualiser » ou si la
+    période change.
+
+    Sans cela, chaque clic relirait la base : de nouvelles lignes décaleraient le tableau et
+    la ligne sélectionnée désignerait une autre requête. Les features (coûteuses) sont calculées
+    à la lecture ; seul le verdict, qui dépend du seuil, est recalculé à chaque exécution.
+    `requetes_version` augmente à chaque lecture : il entre dans la clé du tableau affiché.
+    """
+    cle = (base, periode)
+    actualiser = st.button("Actualiser", icon=":material/refresh:", key="actualiser_requetes")
+    if actualiser or st.session_state.get("requetes_cle") != cle:
+        duree = PERIODES[periode]
+        requetes = lire_requetes(base, None if duree is None else time.time() - duree)
+        st.session_state["requetes_cle"] = cle
+        st.session_state["requetes_figees"] = detail.tableau_detaille(requetes, seuil)
+        st.session_state["requetes_lues_a"] = datetime.now().strftime("%H:%M:%S")
+        st.session_state["requetes_version"] = st.session_state.get("requetes_version", 0) + 1
+    tableau = st.session_state["requetes_figees"]
+    return tableau.assign(verdict=detail.verdicts(tableau["score"], seuil))
+
+
+def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame) -> None:
+    """Panneau de détail d'une requête : nom découpé, features, séquence, décodage, export."""
+    tronque = pd.isna(ligne["qtype"])
+    st.subheader("Détail de la requête")
+    st.markdown(STYLE_QNAME, unsafe_allow_html=True)
+    # qname_html échappe chaque label : le nom vient du réseau
+    st.markdown(
+        f'<div class="qname">{detail.qname_html(ligne["qname"], tronque)}</div>',
+        unsafe_allow_html=True,
+    )
+    legende = "Sous-domaine encadré en rouge, domaine parent en gris."
+    if tronque:
+        legende += " Nom coupé dans la capture : le domaine parent est inconnu."
+    if detail.nom_vu_par_le_modele(ligne["qname"]) != ligne["qname"].rstrip("."):
+        legende += f" Le modèle ne voit que les {detail.LONGUEUR_MAX} premiers caractères."
+    st.caption(legende)
+    taille = "?" if pd.isna(ligne["taille"]) else f"{int(ligne['taille'])} octets"
+    st.caption(
+        f"{ligne['src']} → {ligne['dst']} · type {ligne['type']} · {taille} · "
+        f"score {ligne['score']:.3f} ({ligne['verdict']})"
+    )
+
+    gauche, droite = st.columns(2)
+    with gauche:
+        st.markdown("**Features envoyées au modèle**")
+        benignes = tableau[tableau["verdict"] == "bénigne"]
+        comparaison = detail.comparaison_features(ligne, benignes)
+        # écart indéfini (référence vide ou constante) : un tiret plutôt que « None »
+        comparaison["écart"] = ["—" if pd.isna(e) else f"{e:+.1f} σ" for e in comparaison["écart"]]
+        st.dataframe(
+            comparaison,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "valeur": st.column_config.NumberColumn(format="%.2f"),
+                "moyenne bénigne": st.column_config.NumberColumn(format="%.2f"),
+                "écart": st.column_config.TextColumn(
+                    help="écart à la moyenne bénigne, en écarts-types"
+                ),
+            },
+        )
+        st.caption(
+            f"Moyenne sur les {len(benignes)} requêtes jugées bénignes par le modèle "
+            "sur la période (pas une vérité terrain)."
+        )
+    with droite:
+        suite = detail.sequence(tableau, ligne)
+        st.markdown(f"**Séquence : {len(suite)} requête(s) de ce poste vers ce domaine**")
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "sélection": suite["id"] == ligne["id"],
+                    "heure": en_heure(suite["timestamp"]),
+                    "nom demandé": suite["qname"],
+                    "type": suite["type"],
+                    "score": suite["score"],
+                }
+            ),
+            hide_index=True,
+            width="stretch",
+            height=300,
+            column_config={
+                "heure": st.column_config.DatetimeColumn(format="HH:mm:ss"),
+                "score": st.column_config.NumberColumn(format="%.3f"),
+            },
+        )
+
+    with st.expander("Essai de décodage du sous-domaine"):
+        essais = detail.essais_decodage(detail.sous_domaine(ligne["qname"], tronque))
+        st.caption(
+            "Affiché en hexadécimal et en ASCII échappé uniquement : rien n'est exécuté ni "
+            "interprété. Un décodage qui réussit n'est pas une preuve, juste une piste."
+        )
+        if essais:
+            st.dataframe(pd.DataFrame(essais), hide_index=True, width="stretch")
+        else:
+            st.write("Aucun encodage reconnu (base32, base64, hexadécimal).")
+
+    une = tableau[tableau["id"] == ligne["id"]]
+    gauche, droite = st.columns(2)
+    gauche.download_button(
+        "Exporter cette requête (JSON)",
+        detail.exporter(une, "json"),
+        file_name=f"requete-{ligne['id']}.json",
+        mime="application/json",
+        on_click="ignore",
+    )
+    droite.download_button(
+        "Exporter la séquence (CSV)",
+        detail.exporter(suite, "csv"),
+        file_name=f"sequence-{ligne['id']}.csv",
+        mime="text/csv",
+        on_click="ignore",
+    )
+
+
+def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
+    """Onglet « Requêtes » : tableau filtrable des requêtes et détail de la ligne sélectionnée."""
+    if not Path(base).exists():
+        st.info(f"Aucune base de détections ({base}).")
+        return
+    tableau = requetes_figees(st, base, periode, seuil)
+    st.caption(f"Période : {periode}, lue à {st.session_state['requetes_lues_a']}.")
+    if tableau.empty:
+        st.info("Aucune requête DNS sur la période.")
+        return
+
+    colonnes = st.columns([2, 2, 2, 2, 3])
+    postes = colonnes[0].multiselect(
+        "Poste", sorted(tableau["src"].unique()), key="f_postes", placeholder="Tous"
+    )
+    domaines = colonnes[1].multiselect(
+        "Domaine parent",
+        tableau["domaine"].value_counts().index.tolist(),  # les plus fréquents d'abord
+        key="f_domaines",
+        placeholder="Tous",
+    )
+    verdicts = colonnes[2].multiselect(
+        "Verdict", detail.VERDICTS, key="f_verdicts", placeholder="Tous"
+    )
+    score_min = colonnes[3].slider("Score minimum", 0.0, 1.0, 0.0, 0.05, key="f_score")
+    texte = colonnes[4].text_input("Rechercher dans le nom", key="f_texte")
+    filtrees = detail.filtrer(tableau, postes, domaines, verdicts, score_min, texte)
+    vue = filtrees.sort_values("timestamp", ascending=False).head(LIGNES_MAX)
+
+    gauche, milieu, droite = st.columns([6, 1, 1])
+    gauche.caption(
+        f"{len(vue)} requête(s) affichée(s) sur {len(tableau)}"
+        + (f" (les {LIGNES_MAX} plus récentes)" if len(filtrees) > LIGNES_MAX else "")
+    )
+    milieu.download_button(
+        "CSV", detail.exporter(vue, "csv"), "requetes.csv", "text/csv", on_click="ignore"
+    )
+    droite.download_button(
+        "JSON",
+        detail.exporter(vue, "json"),
+        "requetes.json",
+        "application/json",
+        on_click="ignore",
+    )
+    # une clé par jeu de filtres et par lecture de la base : Streamlit garde la sélection (une
+    # position) quand les données changent ; changer de clé l'efface au lieu de la reporter sur
+    # la ligne qui occupe désormais la même position
+    version = st.session_state["requetes_version"]
+    filtres = repr((postes, domaines, verdicts, score_min, texte, seuil, version))
+    selection = st.dataframe(
+        tableau_affiche(vue),
+        key=f"table_requetes_{zlib.crc32(filtres.encode())}",
+        on_select="rerun",
+        selection_mode="single-row",
+        hide_index=True,
+        width="stretch",
+        height=400,
+        column_config={
+            "heure": st.column_config.DatetimeColumn(format="DD/MM HH:mm:ss"),
+            "taille": st.column_config.NumberColumn(help="octets du message DNS"),
+            "sous-domaine": st.column_config.NumberColumn(
+                help="caractères avant le domaine parent, sur le nom complet"
+            ),
+            "entropie": st.column_config.NumberColumn(
+                format="%.2f",
+                help="bits par caractère, sur les 40 premiers caractères (comme le modèle)",
+            ),
+            "labels": st.column_config.NumberColumn(
+                help="sur les 40 premiers caractères (comme le modèle)"
+            ),
+            "score": st.column_config.ProgressColumn(min_value=0.0, max_value=1.0, format="%.3f"),
+        },
+    )
+    lignes = [i for i in selection.selection.rows if i < len(vue)]
+    if not lignes:
+        st.caption("Sélectionner une ligne pour afficher son détail.")
+        return
+    afficher_detail(st, vue.iloc[lignes[0]], tableau)
+
+
 def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) -> None:
     """Onglet d'analyse d'un fichier de capture déposé par l'utilisateur."""
     from scapy.error import Scapy_Exception
@@ -399,7 +626,9 @@ def page() -> None:
         auto = st.toggle(f"Rafraîchir toutes les {RAFRAICHISSEMENT} s", True, key="auto")
         st.caption(f"Base : `{base}`")
 
-    direct, importee = st.tabs(["Supervision en direct", "Analyser une capture"])
+    direct, onglet_requetes, importee = st.tabs(
+        ["Supervision en direct", "Requêtes", "Analyser une capture"]
+    )
 
     @st.fragment(run_every=RAFRAICHISSEMENT if auto else None)
     def vue_directe() -> None:
@@ -407,6 +636,8 @@ def page() -> None:
 
     with direct:
         vue_directe()
+    with onglet_requetes:
+        vue_requetes(st, base, seuil, periode)
     with importee:
         capture_importee(st, chemin_modele, seuil, int(min_requetes))
 
