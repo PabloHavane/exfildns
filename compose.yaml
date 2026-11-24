@@ -1,0 +1,68 @@
+# Déploiement d'exfildns : capture DNS en direct + dashboard de supervision.
+#   cp .env.example .env    # puis choisir l'interface à surveiller
+#   docker compose up -d --build
+#   -> dashboard sur http://localhost:8501
+# Prérequis : le modèle entraîné dans ./models/exfildns.keras (exfildns train ou le notebook).
+
+x-commun: &commun
+  build: .
+  image: exfildns:local
+  user: "10001"
+  read_only: true
+  tmpfs:
+    - /tmp
+  restart: unless-stopped
+  volumes:
+    - ./models:/models:ro
+
+services:
+  sniff:
+    <<: *commun
+    # Réseau de l'hôte : voir et analyser le trafic DNS de la machine
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    # Pas de no-new-privileges ici : il annulerait la capacité de fichier de python-capture
+    entrypoint: ["python-capture", "-m", "exfildns.cli"]
+    command:
+      - sniff
+      - --interface
+      - ${EXFILDNS_INTERFACE:?définir EXFILDNS_INTERFACE dans .env (voir .env.example)}
+      - --base
+      - /data/detections.db
+      - --modele
+      - /models/exfildns.keras
+    volumes:
+      - ./models:/models:ro
+      - detections:/data
+
+  dashboard:
+    <<: *commun
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - dashboard
+      - --base
+      - /data/detections.db
+      - --modele
+      - /models/exfildns.keras
+      - --adresse
+      - 0.0.0.0
+    # Publié sur l'hôte en local seulement : le dashboard affiche les noms demandés et les postes
+    ports:
+      - "127.0.0.1:${EXFILDNS_PORT:-8501}:8501"
+    volumes:
+      - ./models:/models:ro
+      - detections:/data:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  detections:
