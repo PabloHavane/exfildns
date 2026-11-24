@@ -152,7 +152,8 @@ def commande_dashboard(args) -> int:
     # pas être exposé sur le réseau sans le vouloir (dans un conteneur : --adresse 0.0.0.0)
     commande += ["--server.address", args.adresse, "--server.port", str(args.port)]
     commande += ["--server.headless", "true", "--server.maxUploadSize", str(TAILLE_MAX_CAPTURE)]
-    commande += ["--browser.gatherUsageStats", "false"]
+    # toolbarMode viewer : masque le bouton « Deploy » de Streamlit, sans objet ici
+    commande += ["--browser.gatherUsageStats", "false", "--client.toolbarMode", "viewer"]
     print(
         f"Dashboard : http://{args.adresse}:{args.port} (base {args.base}) ; Ctrl+C pour arrêter."
     )
