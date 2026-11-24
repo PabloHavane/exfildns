@@ -2,8 +2,8 @@
 
 Projet ENSIBS CyberAI : application de machine learning qui détecte les requêtes DNS
 servant à **exfiltrer des données** (DNS tunneling). Un humain (PabloHavane) et ses agents
-Claude (elias-utf8 travaille désormais sur un autre projet). **Les humains n'écrivent pas de code : les agents codent,
-committent, poussent et ouvrent les PR.** Ce fichier est le contrat commun entre les agents.
+Claude (elias-utf8 travaille désormais sur un autre projet). **L'humain n'écrit pas de code :
+les agents codent, committent, poussent et ouvrent les PR.** Ce fichier est le contrat commun entre les agents.
 
 ## Principe directeur : KISS
 

@@ -12,7 +12,7 @@ du milestone ouvert le plus ancien (`gh issue list --milestone "<titre>" --searc
 
 ```bash
 gh issue view <n°>                       # lire l'issue et ses critères d'acceptation
-gh issue edit <n°> --add-assignee @me    # la réserver (si elle est assignée à l'autre : STOP, en choisir une autre)
+gh issue edit <n°> --add-assignee @me    # la réserver (si elle est assignée à quelqu'un d'autre : STOP, en choisir une autre)
 git switch main && git pull --rebase
 git switch -c <type>/<n°>-<description-courte>
 ```
