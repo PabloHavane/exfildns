@@ -16,13 +16,17 @@ from exfildns import dashboard
 from exfildns.alertes import alertes
 from exfildns.cli import main
 from exfildns.dashboard import (
-    activite_par_minute,
+    activite_dns,
     analyser_capture,
     classement,
     en_heure,
+    graduations,
     graphique_activite,
     indicateurs,
+    instants_alertes,
+    intervalle,
     lire_requetes,
+    pas_graduations,
     tableau_alertes,
     tableau_requetes,
 )
@@ -180,26 +184,109 @@ def test_indicateurs(base_demo):
     }
 
 
-def test_activite_par_minute():
+def test_activite_dns():
     requetes = pd.DataFrame(
         {"timestamp": [0.0, 10.0, 70.0, 75.0], "score": [0.1, 0.9, 0.9, 0.2], "src": ["a"] * 4}
     )
 
-    activite = activite_par_minute(requetes, seuil=0.5)
+    activite = activite_dns(requetes, seuil=0.5)
 
     assert list(activite.columns) == ["bénignes", "suspectes"]
     assert activite["bénignes"].tolist() == [1, 1]
     assert activite["suspectes"].tolist() == [1, 1]
 
 
-def test_activite_par_minute_sans_suspecte():
+def test_activite_dns_sans_suspecte():
     requetes = pd.DataFrame({"timestamp": [0.0], "score": [0.1], "src": ["a"]})
 
-    assert activite_par_minute(requetes, 0.5)["suspectes"].tolist() == [0]
+    assert activite_dns(requetes, 0.5)["suspectes"].tolist() == [0]
 
 
-def test_activite_par_minute_vide():
-    activite = activite_par_minute(pd.DataFrame(columns=["timestamp", "score"]), 0.5)
+def test_activite_dns_par_tranche_de_5_minutes():
+    requetes = pd.DataFrame(
+        {"timestamp": [0.0, 290.0, 610.0], "score": [0.1] * 3, "src": ["a"] * 3}
+    )
+
+    activite = activite_dns(requetes, 0.5, minutes=5)
+
+    assert activite["bénignes"].tolist() == [2, 0, 1]  # 0-5 min, 5-10 min (vide), 10-15 min
+    assert (activite.index.to_series().diff().dropna() == pd.Timedelta(minutes=5)).all()
+
+
+@pytest.mark.parametrize(
+    ("duree_h", "minutes"), [(0, 1), (23, 1), (25, 5), (100, 5), (200, 15), (24 * 30, 60)]
+)
+def test_intervalle_selon_la_duree(duree_h, minutes):
+    requetes = pd.DataFrame({"timestamp": [0.0, duree_h * 3600.0]})
+
+    assert intervalle(requetes) == minutes
+
+
+def test_intervalle_vide_et_tres_longue_duree():
+    assert intervalle(pd.DataFrame({"timestamp": []})) == 1
+    assert intervalle(pd.DataFrame({"timestamp": [0.0, 10 * 365 * 86400.0]})) == 1440
+
+
+def test_graphique_activite_longue_periode_sous_la_limite_d_altair():
+    """Régression : une grille à la minute sur 3 jours dépassait les 5000 lignes d'Altair."""
+    requetes = pd.DataFrame(
+        {"timestamp": [0.0, 3 * 86400.0], "score": [0.1, 0.9], "src": ["a"] * 2}
+    )
+    minutes = intervalle(requetes)
+
+    spec = graphique_activite(activite_dns(requetes, 0.5, minutes), minutes).to_dict()
+
+    assert len(spec["datasets"][spec["data"]["name"]]) < 5000
+    assert spec["encoding"]["x"]["axis"]["format"] == "%d/%m %H:%M"  # plusieurs jours : la date
+
+
+def test_graduations_sur_des_heures_rondes():
+    debuts = pd.date_range("2026-11-24 18:07", periods=30, freq="min", tz="Europe/Paris")
+
+    valeurs = graduations(debuts, 1)  # 18:07 -> 18:36, une graduation toutes les 5 min
+
+    assert [m.strftime("%H:%M") for m in valeurs] == [
+        "18:10",
+        "18:15",
+        "18:20",
+        "18:25",
+        "18:30",
+        "18:35",
+    ]
+
+
+def test_graduations_sans_heure_ronde_ni_tranche():
+    debuts = pd.date_range("2026-11-24 18:07", periods=1, freq="min", tz="Europe/Paris")
+
+    assert [m.strftime("%H:%M") for m in graduations(debuts, 1)] == ["18:07"]
+    assert graduations(debuts[:0], 1) == []
+
+
+def test_activite_dns_minutes_sans_trafic_a_zero():
+    requetes = pd.DataFrame({"timestamp": [0.0, 185.0], "score": [0.9, 0.1], "src": ["a"] * 2})
+
+    activite = activite_dns(requetes, 0.5)
+
+    assert len(activite) == 4  # minutes 0, 1, 2, 3 : aucune ne manque
+    assert (activite.index.to_series().diff().dropna() == pd.Timedelta(minutes=1)).all()
+    assert activite["bénignes"].tolist() == [0, 0, 0, 1]
+    assert activite["suspectes"].tolist() == [1, 0, 0, 0]
+
+
+def test_activite_dns_une_ligne_par_minute():
+    """Le bug d'origine : des requêtes d'une même minute ne donnent qu'une seule ligne."""
+    requetes = pd.DataFrame(
+        {"timestamp": [60.0 + i for i in range(0, 60, 5)], "score": [0.1] * 12, "src": ["a"] * 12}
+    )
+
+    activite = activite_dns(requetes, 0.5)
+
+    assert len(activite) == 1
+    assert activite["bénignes"].tolist() == [12]
+
+
+def test_activite_dns_vide():
+    activite = activite_dns(pd.DataFrame(columns=["timestamp", "score"]), 0.5)
 
     assert activite.empty
     assert list(activite.columns) == ["bénignes", "suspectes"]
@@ -501,7 +588,7 @@ def test_dashboard_et_alertes_sans_tensorflow():
 
 
 def test_graphique_activite_fixe_et_empile():
-    activite = activite_par_minute(
+    activite = activite_dns(
         pd.DataFrame({"timestamp": [0.0, 10.0, 70.0], "score": [0.1, 0.9, 0.2], "src": ["a"] * 3}),
         seuil=0.5,
     )
@@ -514,3 +601,98 @@ def test_graphique_activite_fixe_et_empile():
     assert spec["encoding"]["color"]["scale"]["domain"] == ["bénignes", "suspectes"]
     assert "params" not in spec  # pas de sélection ni de zoom (.interactive() absent)
     assert len(spec["datasets"][spec["data"]["name"]]) == 4  # 2 minutes x 2 classes
+
+
+def suspectes_vers(domaine, instants, qtype=16, score=0.9):
+    return [
+        {"timestamp": t, "src": "a", "qname": f"{i}x.{domaine}", "qtype": qtype, "score": score}
+        for i, t in enumerate(instants)
+    ]
+
+
+def test_instants_alertes_a_la_n_ieme_requete_suspecte():
+    requetes = pd.DataFrame(
+        suspectes_vers("pirate.example", [10.0, 30.0, 20.0, 40.0])
+        + suspectes_vers("autre.example", [5.0, 6.0])
+        + suspectes_vers("calme.example", [1.0, 2.0, 3.0], score=0.1)
+    )
+
+    instants = instants_alertes(requetes, seuil=0.5, min_requetes=3)
+
+    # 3e requête suspecte dans l'ordre du temps (10, 20, 30), pas dans l'ordre des lignes
+    assert instants.to_dict("records") == [{"domaine": "pirate.example", "instant": 30.0}]
+
+
+def test_instants_alertes_memes_alertes_que_le_resume(base_demo):
+    requetes = lire_requetes(base_demo)
+
+    instants = instants_alertes(requetes, 0.5, 5)
+
+    assert sorted(instants["domaine"]) == sorted(alertes(requetes, 0.5, 5)["domaine"])
+
+
+def test_instants_alertes_liste_blanche_et_nom_tronque():
+    requetes = pd.DataFrame(
+        suspectes_vers("cloudfront.net", [1.0, 2.0]) + suspectes_vers("coupe", [3.0, 4.0], None)
+    )
+
+    instants = instants_alertes(requetes, 0.5, 2, liste_blanche=["cloudfront.net"])
+
+    assert instants["domaine"].tolist() == ["(nom incomplet dans la capture)"]
+
+
+def test_instants_alertes_toutes_en_liste_blanche():
+    requetes = pd.DataFrame(suspectes_vers("cloudfront.net", [1.0, 2.0, 3.0]))
+
+    instants = instants_alertes(requetes, 0.5, 1, liste_blanche=["cloudfront.net"])
+
+    assert instants.empty
+    assert list(instants.columns) == ["domaine", "instant"]
+
+
+def test_instants_alertes_sans_suspecte():
+    requetes = pd.DataFrame(suspectes_vers("calme.example", [1.0], score=0.1))
+
+    assert instants_alertes(requetes, 0.5, 1).empty
+    assert instants_alertes(requetes.iloc[:0], 0.5, 1).empty
+
+
+@pytest.mark.parametrize(
+    ("minutes", "pas"), [(1, 1), (12, 1), (13, 2), (60, 5), (24 * 60, 120), (10**6, 10080)]
+)
+def test_pas_graduations(minutes, pas):
+    assert pas_graduations(minutes) == pas
+
+
+def test_graphique_activite_graduations_a_la_minute():
+    activite = activite_dns(
+        pd.DataFrame({"timestamp": [0.0, 125.0], "score": [0.1, 0.9], "src": ["a"] * 2}), 0.5
+    )
+
+    x = graphique_activite(activite).to_dict()["encoding"]["x"]
+
+    assert x["type"] == "temporal"
+    assert graphique_activite(activite).to_dict()["encoding"]["x2"]["field"] == "fin"
+    # une graduation par minute, alignée sur la minute (l'heure dépend du fuseau de la machine)
+    assert [v["minutes"] for v in x["axis"]["values"]] == [0, 1, 2]
+
+
+def test_graphique_activite_marqueurs_d_alerte():
+    activite = activite_dns(
+        pd.DataFrame({"timestamp": [0.0, 125.0], "score": [0.1, 0.9], "src": ["a"] * 2}), 0.5
+    )
+    instants = pd.DataFrame({"domaine": ["pirate.example"], "instant": [100.0]})
+
+    spec = graphique_activite(activite, 1, instants).to_dict()
+
+    barres, marqueurs = spec["layer"]
+    assert barres["mark"]["type"] == "bar"
+    assert marqueurs["mark"]["type"] == "rule"
+    assert len(spec["datasets"][marqueurs["data"]["name"]]) == 1
+
+
+def test_graphique_activite_sans_alerte_pas_de_marqueur():
+    activite = activite_dns(pd.DataFrame({"timestamp": [0.0], "score": [0.1], "src": ["a"]}), 0.5)
+    vide = pd.DataFrame(columns=["domaine", "instant"])
+
+    assert "layer" not in graphique_activite(activite, 1, vide).to_dict()
