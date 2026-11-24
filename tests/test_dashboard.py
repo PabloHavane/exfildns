@@ -20,6 +20,7 @@ from exfildns.dashboard import (
     analyser_capture,
     classement,
     en_heure,
+    graphique_activite,
     indicateurs,
     lire_requetes,
     tableau_alertes,
@@ -207,10 +208,10 @@ def test_activite_par_minute_vide():
 def test_classement():
     suspectes = pd.DataFrame({"src": ["a", "b", "a", "a", "c", "b"]})
 
-    tableau = classement(suspectes, "src", n=2)
+    tableau = classement(suspectes, "src", "poste", n=2)
 
     assert tableau.values.tolist() == [["a", 3], ["b", 2]]
-    assert list(tableau.columns) == ["src", "requêtes suspectes"]
+    assert list(tableau.columns) == ["poste", "requêtes suspectes"]
 
 
 def test_tableau_alertes(base_demo):
@@ -278,7 +279,8 @@ def test_app_affiche_l_alerte(base_demo, monkeypatch):
     alerte = at.dataframe[0].value
     assert alerte.loc[0, "domaine"] == "attaquant.example"
     assert len(at.dataframe) == 4  # alertes, postes, serveurs, requêtes suspectes
-    assert at.dataframe[1].value.iloc[0]["src"] == "10.0.0.66"
+    assert at.dataframe[1].value.iloc[0]["poste"] == "10.0.0.66"
+    assert at.dataframe[2].value.columns[0] == "serveur DNS"
 
 
 def test_app_seuil_plus_strict(base_demo, monkeypatch):
@@ -342,6 +344,7 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     assert commande[4] == FICHIER_APP
     assert commande[commande.index("--server.port") + 1] == "9000"
     assert commande[commande.index("--server.address") + 1] == "localhost"  # pas exposé
+    assert commande[commande.index("--client.toolbarMode") + 1] == "viewer"
     assert env["EXFILDNS_BASE"] == str(tmp_path / "detections.db")
     assert env["EXFILDNS_MODELE"] == str(tmp_path / "models" / "exfildns.keras")
     assert commande[commande.index("--server.maxUploadSize") + 1] == "100"
@@ -495,3 +498,18 @@ def test_dashboard_et_alertes_sans_tensorflow():
     )
 
     assert sortie.stdout.strip() == "False"
+
+
+def test_graphique_activite_fixe_et_empile():
+    activite = activite_par_minute(
+        pd.DataFrame({"timestamp": [0.0, 10.0, 70.0], "score": [0.1, 0.9, 0.2], "src": ["a"] * 3}),
+        seuil=0.5,
+    )
+
+    spec = graphique_activite(activite).to_dict()
+
+    assert spec["mark"]["type"] == "bar"
+    assert spec["encoding"]["y"]["stack"] is True
+    assert spec["encoding"]["color"]["scale"]["domain"] == ["bénignes", "suspectes"]
+    assert "params" not in spec  # pas de sélection ni de zoom (.interactive() absent)
+    assert len(spec["datasets"][spec["data"]["name"]]) == 4  # 2 minutes x 2 classes
