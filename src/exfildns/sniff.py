@@ -96,15 +96,23 @@ def surveiller(
 def lots_reseau(interface: str | None = None, duree_lot: float = 1.0) -> Iterator[list]:
     """Paquets DNS capturés sur `interface` (par défaut celle de scapy), par lots de `duree_lot` s.
 
-    Le socket est ouvert une seule fois : aucun paquet n'est perdu entre deux lots. Il est lu
-    directement plutôt qu'avec `scapy.sniff`, qui avalerait Ctrl+C au lieu de le transmettre.
-    Lève `PermissionError` sans root ni `CAP_NET_RAW`, `ValueError` si l'interface n'existe pas.
+    Le socket est ouvert **tout de suite**, avant la première lecture : les erreurs de capture
+    sortent ici et non au milieu de la notation. Lève `PermissionError` sans root ni
+    `CAP_NET_RAW`, `ValueError` si l'interface n'existe pas, `Scapy_Exception` sans libpcap.
     """
     interface = interface or conf.iface
     filtre = FILTRE_BPF
     if interface == "lo":  # bouclage : chaque paquet est vu en sortie puis en entrée
         filtre = f"inbound and {filtre}"
-    socket = conf.L2listen(iface=interface, filter=filtre)
+    return _lire_par_lots(conf.L2listen(iface=interface, filter=filtre), duree_lot)
+
+
+def _lire_par_lots(socket, duree_lot: float) -> Iterator[list]:
+    """Lit le socket par lots ; le ferme quand la lecture s'arrête.
+
+    Le socket est ouvert une seule fois : aucun paquet n'est perdu entre deux lots. Il est lu
+    directement plutôt qu'avec `scapy.sniff`, qui avalerait Ctrl+C au lieu de le transmettre.
+    """
     try:
         while True:
             lot = []

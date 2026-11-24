@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 from conftest import NOM_EXFIL, noms_benins, noms_exfil, requete
 from scapy.config import conf
+from scapy.error import Scapy_Exception
 from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import Ether
 
@@ -23,6 +24,14 @@ def recu(paquet, instant=1000.0):
 def lignes(base):
     with sqlite3.connect(base) as connexion:
         return connexion.execute("SELECT src, dst, qname, qtype, score FROM requetes").fetchall()
+
+
+@pytest.fixture(autouse=True)
+def restaurer_sigterm():
+    """`exfildns sniff` détourne SIGTERM : on remet le gestionnaire de pytest après chaque test."""
+    precedent = signal.getsignal(signal.SIGTERM)
+    yield
+    signal.signal(signal.SIGTERM, precedent)
 
 
 @pytest.fixture(scope="module")
@@ -177,7 +186,6 @@ def test_cli_sniff(tmp_path, modele, monkeypatch, capsys):
 def test_cli_sniff_sans_droits(tmp_path, modele, monkeypatch, capsys):
     def sans_droits(interface):
         raise PermissionError(1, "Operation not permitted")
-        yield
 
     monkeypatch.setattr("exfildns.cli.lots_reseau", sans_droits)
 
@@ -190,7 +198,6 @@ def test_cli_sniff_sans_droits(tmp_path, modele, monkeypatch, capsys):
 def test_cli_sniff_interface_inconnue(tmp_path, modele, monkeypatch, capsys):
     def inconnue(interface):
         raise ValueError(f"Interface '{interface}' not found !")
-        yield
 
     monkeypatch.setattr("exfildns.cli.lots_reseau", inconnue)
 
@@ -289,12 +296,46 @@ def test_cli_sniff_s_arrete_proprement_sur_sigterm(tmp_path, modele, monkeypatch
         yield [recu(requete("jamais.fr"))]
 
     monkeypatch.setattr("exfildns.cli.lots_reseau", reseau_puis_sigterm)
-    precedent = signal.getsignal(signal.SIGTERM)
-    try:
-        code = main(["sniff", "-m", str(modele), "--base", str(base)])
-    finally:
-        signal.signal(signal.SIGTERM, precedent)
+
+    code = main(["sniff", "-m", str(modele), "--base", str(base)])
 
     assert code == 0
     assert "1 requêtes analysées" in capsys.readouterr().out
     assert [ligne[2] for ligne in lignes(base)] == ["a.fr"]
+
+
+def test_cli_sniff_sans_libpcap(tmp_path, modele, monkeypatch, capsys):
+    def sans_libpcap(interface):
+        raise Scapy_Exception("Cannot set filter: libpcap is not available")
+
+    monkeypatch.setattr("exfildns.cli.lots_reseau", sans_libpcap)
+
+    code = main(["sniff", "-m", str(modele), "--base", str(tmp_path / "d.db")])
+
+    assert code == 2
+    assert "libpcap" in capsys.readouterr().err
+
+
+def test_cli_sniff_erreur_du_modele_non_masquee(tmp_path, modele, monkeypatch):
+    # une erreur pendant la notation n'est pas confondue avec une erreur de capture
+    def lots(interface):
+        yield [recu(requete("a.fr"))]
+
+    def modele_casse(*_):
+        raise ValueError("nombre de features incohérent")
+
+    monkeypatch.setattr("exfildns.cli.lots_reseau", lots)
+    monkeypatch.setattr("exfildns.sniff.predire_proba", modele_casse)
+
+    with pytest.raises(ValueError, match="features incohérent"):
+        main(["sniff", "-m", str(modele), "--base", str(tmp_path / "d.db")])
+
+
+def test_lots_reseau_erreur_de_capture_immediate(monkeypatch):
+    def refuse(iface, filter):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr("exfildns.sniff.conf.L2listen", refuse)
+
+    with pytest.raises(PermissionError):
+        lots_reseau("eth0")  # sans attendre la première lecture

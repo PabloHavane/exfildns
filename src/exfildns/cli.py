@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from scapy.error import Scapy_Exception
 
 from exfildns import __version__
 from exfildns.dataset import load_dataset
@@ -114,16 +115,8 @@ def commande_sniff(args) -> int:
         )
         return 2
     modele = charger(args.modele)
-    connexion = ouvrir_base(args.base)
-    # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
-    signal.signal(signal.SIGTERM, signal.default_int_handler)
-    interface = args.interface or "l'interface par défaut"
-    print(f"Capture DNS sur {interface}, requêtes enregistrées dans {args.base}.")
-    print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.", flush=True)
     try:
-        analysees, suspectes = surveiller(
-            lots_reseau(args.interface), modele, connexion, args.seuil
-        )
+        lots = lots_reseau(args.interface)
     except PermissionError:
         print(
             "Droits insuffisants pour capturer : lancer en root ou donner la capacité "
@@ -131,9 +124,17 @@ def commande_sniff(args) -> int:
             file=sys.stderr,
         )
         return 2
-    except ValueError as erreur:  # interface inconnue
+    except (ValueError, Scapy_Exception) as erreur:  # interface inconnue, libpcap absent
         print(f"Capture impossible : {erreur}", file=sys.stderr)
         return 2
+    # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    interface = args.interface or "l'interface par défaut"
+    print(f"Capture DNS sur {interface}, requêtes enregistrées dans {args.base}.")
+    print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.", flush=True)
+    connexion = ouvrir_base(args.base)
+    try:
+        analysees, suspectes = surveiller(lots, modele, connexion, args.seuil)
     finally:
         connexion.close()
     print(f"\nCapture arrêtée : {analysees} requêtes analysées, {suspectes} suspectes.")
