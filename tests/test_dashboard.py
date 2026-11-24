@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from conftest import ecrire_pcap, noms_benins, noms_exfil, requete
+from scapy.error import Scapy_Exception
+from scapy.layers.inet import IP, TCP
+from scapy.layers.l2 import Ether
 from streamlit.testing.v1 import AppTest
 
 from exfildns import dashboard
@@ -11,6 +15,7 @@ from exfildns.alertes import alertes
 from exfildns.cli import main
 from exfildns.dashboard import (
     activite_par_minute,
+    analyser_capture,
     classement,
     en_heure,
     indicateurs,
@@ -18,6 +23,9 @@ from exfildns.dashboard import (
     tableau_alertes,
     tableau_requetes,
 )
+from exfildns.features import features_dataframe
+from exfildns.model import charger, predire_proba
+from exfildns.pcap import read_dns_queries
 from exfildns.sniff import ouvrir_base
 
 FICHIER_APP = str(Path(dashboard.__file__))
@@ -333,6 +341,8 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     assert commande[commande.index("--server.port") + 1] == "9000"
     assert commande[commande.index("--server.address") + 1] == "localhost"  # pas exposé
     assert env["EXFILDNS_BASE"] == str(tmp_path / "detections.db")
+    assert env["EXFILDNS_MODELE"] == str(tmp_path / "models" / "exfildns.keras")
+    assert commande[commande.index("--server.maxUploadSize") + 1] == "100"
     assert "localhost:9000" in capsys.readouterr().out
 
 
@@ -343,3 +353,133 @@ def test_cli_dashboard_adresse_explicite(monkeypatch):
     main(["dashboard", "--adresse", "0.0.0.0"])
 
     assert appels[0][appels[0].index("--server.address") + 1] == "0.0.0.0"
+
+
+# --- onglet « Analyser une capture » (#41) ---
+
+
+def octets_pcap(tmp_path, paquets, snaplen=65535):
+    chemin = tmp_path / "capture.pcap"
+    ecrire_pcap(chemin, paquets, snaplen)
+    return chemin.read_bytes()
+
+
+def test_analyser_capture(tmp_path, modele):
+    contenu = octets_pcap(
+        tmp_path,
+        [requete(q) for q in noms_benins(5, graine=11)]
+        + [requete(q, dst="10.6.6.6") for q in noms_exfil(5, graine=11)],
+    )
+
+    requetes = analyser_capture(contenu, str(modele))
+
+    assert len(requetes) == 10
+    assert (requetes.loc[requetes["dst"] == "10.6.6.6", "score"] >= 0.5).all()
+    assert (requetes.loc[requetes["dst"] == "8.8.8.8", "score"] < 0.5).all()
+
+
+def test_analyser_capture_meme_resultat_que_scan(tmp_path, modele):
+    paquets = [requete(q) for q in noms_benins(5, graine=12)]
+    paquets += [requete(q, dst="10.6.6.6") for q in noms_exfil(5, graine=12)]
+    contenu = octets_pcap(tmp_path, paquets, snaplen=96)  # paquets tronqués comme le dataset
+
+    requetes = analyser_capture(contenu, str(modele))
+    attendu = read_dns_queries(tmp_path / "capture.pcap")
+    attendu["score"] = predire_proba(charger(modele), features_dataframe(attendu["qname"]))
+
+    pd.testing.assert_frame_equal(requetes, attendu)
+
+
+def test_analyser_capture_fichier_invalide(modele):
+    with pytest.raises(Scapy_Exception):
+        analyser_capture(b"ceci n'est pas une capture", str(modele))
+
+
+def deposer(at, nom, contenu):
+    at.tabs[1].file_uploader(key="capture").set_value((nom, contenu, "application/octet-stream"))
+    return at.run()
+
+
+def app_capture(tmp_path, modele, monkeypatch):
+    monkeypatch.setenv("EXFILDNS_MODELE", str(modele))
+    return app(tmp_path / "absente.db", monkeypatch).run()
+
+
+def test_app_onglet_capture_sans_fichier(tmp_path, modele, monkeypatch):
+    at = app_capture(tmp_path, modele, monkeypatch)
+
+    assert [t.label for t in at.tabs] == ["Supervision en direct", "Analyser une capture"]
+    assert "exfildns scan" in at.tabs[1].caption[0].value
+    assert not at.exception
+
+
+def test_app_capture_avec_tunneling(tmp_path, modele, monkeypatch):
+    contenu = octets_pcap(
+        tmp_path,
+        [requete(q) for q in noms_benins(10, graine=13)]
+        + [requete(q, dst="10.6.6.6") for q in noms_exfil(6, graine=13)],
+    )
+    at = app_capture(tmp_path, modele, monkeypatch)
+
+    at = deposer(at, "tunnel.pcap", contenu)
+
+    assert not at.exception
+    onglet = at.tabs[1]
+    valeurs = {m.label: m.value for m in onglet.metric}
+    assert valeurs["Requêtes analysées"] == "16"
+    assert valeurs["Requêtes suspectes"] == "6"
+    assert valeurs["Alertes"] == "1"
+    assert "attaquant.example" in onglet.error[0].value
+    assert "tunnel.pcap" in onglet.caption[0].value
+
+
+def test_app_capture_benigne(tmp_path, modele, monkeypatch):
+    contenu = octets_pcap(tmp_path, [requete(q) for q in noms_benins(10, graine=14)])
+    at = app_capture(tmp_path, modele, monkeypatch)
+
+    at = deposer(at, "normal.pcap", contenu)
+
+    onglet = at.tabs[1]
+    assert not at.exception
+    assert {m.label: m.value for m in onglet.metric}["Alertes"] == "0"
+    assert "Aucune alerte" in onglet.success[0].value
+
+
+def test_app_capture_sans_dns(tmp_path, modele, monkeypatch):
+    contenu = octets_pcap(tmp_path, [Ether() / IP() / TCP(dport=443)])
+    at = app_capture(tmp_path, modele, monkeypatch)
+
+    at = deposer(at, "web.pcap", contenu)
+
+    assert not at.exception
+    assert "Aucune requête DNS" in at.tabs[1].info[0].value
+
+
+def test_app_capture_fichier_invalide(tmp_path, modele, monkeypatch):
+    at = app_capture(tmp_path, modele, monkeypatch)
+
+    at = deposer(at, "faux.pcap", b"ceci n'est pas une capture")
+
+    assert not at.exception
+    assert "n'est pas une capture réseau lisible" in at.tabs[1].error[0].value
+
+
+def test_app_capture_modele_absent(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXFILDNS_MODELE", str(tmp_path / "absent.keras"))
+    at = app(tmp_path / "absente.db", monkeypatch).run()
+
+    at = deposer(at, "capture.pcap", b"peu importe")
+
+    assert not at.exception
+    assert "Modèle introuvable" in at.tabs[1].warning[0].value
+
+
+def test_app_capture_reglages_appliques(tmp_path, modele, monkeypatch):
+    contenu = octets_pcap(tmp_path, [requete(q, dst="10.6.6.6") for q in noms_exfil(6, graine=15)])
+    at = deposer(app_capture(tmp_path, modele, monkeypatch), "tunnel.pcap", contenu)
+    assert {m.label: m.value for m in at.tabs[1].metric}["Alertes"] == "1"
+
+    at.number_input(key="min_requetes").set_value(10).run()
+
+    assert not at.exception
+    assert {m.label: m.value for m in at.tabs[1].metric}["Alertes"] == "0"

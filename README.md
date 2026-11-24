@@ -124,13 +124,18 @@ Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
 ### Superviser avec le dashboard
 
 ```bash
-uv run exfildns dashboard [--base detections.db] [--port 8501] [--adresse localhost]
+uv run exfildns dashboard [--base detections.db] [-m models/exfildns.keras] [--port 8501] [--adresse localhost]
 ```
 
 Ouvre <http://localhost:8501> : chiffres clés de la période (requêtes analysées, suspectes,
 alertes, postes), alertes par domaine, activité DNS par minute, postes et serveurs concernés,
 requêtes suspectes les plus récentes. Seuil, nombre de requêtes pour une alerte et période se
 règlent dans la barre latérale ; la vue se rafraîchit toutes les 5 secondes.
+
+L'onglet **Analyser une capture** accepte un fichier `.pcap` / `.pcapng` et l'analyse comme
+`exfildns scan`, avec les mêmes vues (utile sans accès au réseau, ou pour rejouer une capture).
+Le modèle est celui de `-m` (relancer le dashboard après un réentraînement : les analyses sont
+mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
 Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il peut tourner
 pendant la capture. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
