@@ -96,6 +96,26 @@ uv run exfildns scan capture.pcap > rapport.txt
 [ $? -eq 1 ] && grep -q suspectes rapport.txt && echo "Exfiltration suspectée"
 ```
 
+### Détecter en direct sur le réseau
+
+```bash
+sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras]
+```
+
+```
+Capture DNS sur wlan0, requêtes enregistrées dans detections.db.
+Requêtes suspectes (seuil 0.5) ; Ctrl+C pour arrêter.
+1.000  192.168.1.20 -> 192.168.1.1  0.PbRnw5CzRaPatJvFwgVhKtw12qpxW7fhoFxsLeQY.attaquant.example
+^C
+Capture arrêtée : 214 requêtes analysées, 1 suspectes.
+```
+
+Chaque requête DNS vue sur l'interface est notée par le même modèle que `scan`, puis
+enregistrée avec son score dans la base SQLite `--base` (lue par le dashboard). Les requêtes
+suspectes s'affichent au fil de l'eau. La capture demande **root** ou la capacité
+**`CAP_NET_RAW`** ; sans `-i`, scapy choisit l'interface de la route par défaut.
+Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
+
 ## Notebook de méthodologie
 
 [notebooks/methodologie.ipynb](notebooks/methodologie.ipynb) déroule la démarche d'apprentissage
