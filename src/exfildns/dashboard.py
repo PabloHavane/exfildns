@@ -74,7 +74,9 @@ def lire_requetes(base: str | Path, depuis: float | None = None) -> pd.DataFrame
         if "readonly" not in str(erreur):
             raise
         requetes = _lire(uri + "&immutable=1", sql, params)
-    return requetes.astype({"qtype": "Int64", "score": float})
+    if "taille" not in requetes:  # base écrite par une version antérieure, pas encore migrée
+        requetes["taille"] = pd.NA
+    return requetes.astype({"qtype": "Int64", "score": float, "taille": "Int64"})
 
 
 def _lire(uri: str, sql: str, params: tuple) -> pd.DataFrame:

@@ -42,7 +42,11 @@ def remplir(base, lignes):
     """Écrit des lignes (timestamp, src, dst, qname, qtype, score) comme le ferait sniff."""
     connexion = ouvrir_base(base)
     with connexion:
-        connexion.executemany("INSERT INTO requetes VALUES (?, ?, ?, ?, ?, ?)", lignes)
+        connexion.executemany(
+            "INSERT INTO requetes (timestamp, src, dst, qname, qtype, score)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            lignes,
+        )
     connexion.close()
 
 
@@ -84,13 +88,53 @@ def test_lire_requetes_toute_la_base(base_demo):
     requetes = lire_requetes(base_demo)
 
     assert len(requetes) == 30
-    assert list(requetes.columns) == ["timestamp", "src", "dst", "qname", "qtype", "score"]
+    assert list(requetes.columns) == [
+        "timestamp",
+        "src",
+        "dst",
+        "qname",
+        "qtype",
+        "score",
+        "taille",
+    ]
     assert requetes["timestamp"].is_monotonic_increasing
     assert requetes["qtype"].dtype == "Int64"
 
 
 def test_lire_requetes_depuis_un_instant(base_demo):
     assert len(lire_requetes(base_demo, depuis=time.time() - 3600)) == 29
+
+
+def test_lire_requetes_taille(tmp_path):
+    base = tmp_path / "detections.db"
+    connexion = ouvrir_base(base)
+    with connexion:
+        connexion.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1, 26)")
+        connexion.execute("INSERT INTO requetes VALUES (2, 'a', 'b', 'y.fr', 1, 0.1, NULL)")
+    connexion.close()
+
+    requetes = lire_requetes(base)
+
+    assert requetes["taille"].dtype == "Int64"
+    assert requetes["taille"].tolist()[0] == 26
+    assert requetes["taille"].isna().tolist() == [False, True]
+
+
+def test_lire_requetes_base_anterieure_non_migree(tmp_path):
+    """Dashboard ouvert sur une base que la capture n'a pas encore migrée (lecture seule)."""
+    base = tmp_path / "detections.db"
+    with sqlite3.connect(base) as ancienne:
+        ancienne.execute(
+            "CREATE TABLE requetes (timestamp REAL, src TEXT, dst TEXT, qname TEXT,"
+            " qtype INTEGER, score REAL)"
+        )
+        ancienne.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1)")
+    ancienne.close()
+
+    requetes = lire_requetes(base)
+
+    assert requetes["taille"].isna().all()
+    assert requetes["taille"].dtype == "Int64"
 
 
 def test_lire_requetes_base_vide(tmp_path):
@@ -127,7 +171,7 @@ def test_lire_requetes_fichiers_non_modifiables_capture_en_cours(tmp_path):
     base = tmp_path / "detections.db"
     ecrivain = ouvrir_base(base)
     with ecrivain:
-        ecrivain.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1)")
+        ecrivain.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1, 40)")
     for fichier in tmp_path.iterdir():
         fichier.chmod(0o444)
     tmp_path.chmod(0o555)
@@ -151,11 +195,11 @@ def test_lire_requetes_ecriture_en_cours(tmp_path):
     base = tmp_path / "detections.db"
     ecrivain = ouvrir_base(base)
     with ecrivain:
-        ecrivain.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1)")
+        ecrivain.execute("INSERT INTO requetes VALUES (1, 'a', 'b', 'x.fr', 1, 0.1, 40)")
 
     premiere = lire_requetes(base)
     with ecrivain:
-        ecrivain.execute("INSERT INTO requetes VALUES (2, 'a', 'b', 'y.fr', 1, 0.1)")
+        ecrivain.execute("INSERT INTO requetes VALUES (2, 'a', 'b', 'y.fr', 1, 0.1, 40)")
 
     assert len(premiere) == 1
     assert len(lire_requetes(base)) == 2
