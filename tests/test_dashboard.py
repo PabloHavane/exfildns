@@ -21,7 +21,6 @@ from exfildns.dashboard import (
 from exfildns.sniff import ouvrir_base
 
 FICHIER_APP = str(Path(dashboard.__file__))
-MAINTENANT = time.time()
 
 
 def remplir(base, lignes):
@@ -35,13 +34,14 @@ def remplir(base, lignes):
 @pytest.fixture
 def base_demo(tmp_path):
     """Deux postes qui naviguent, un poste qui exfiltre, une vieille requête et un CDN."""
+    maintenant = time.time()  # au moment du test : l'app filtre par rapport à l'heure courante
     lignes = [
-        (MAINTENANT - 120 + i, f"10.0.0.{1 + i % 2}", "10.0.0.254", f"site{i}.fr", 1, 0.01)
+        (maintenant - 120 + i, f"10.0.0.{1 + i % 2}", "10.0.0.254", f"site{i}.fr", 1, 0.01)
         for i in range(20)
     ]
     lignes += [
         (
-            MAINTENANT - 60 + i,
+            maintenant - 60 + i,
             "10.0.0.66",
             "10.0.0.254",
             f"{i}.AbCdEf0123.attaquant.example",
@@ -50,8 +50,8 @@ def base_demo(tmp_path):
         )
         for i in range(8)
     ]
-    lignes.append((MAINTENANT - 30, "10.0.0.1", "10.0.0.254", "d1x2y3.cloudfront.net", 1, 0.8))
-    lignes.append((MAINTENANT - 2 * 86400, "10.0.0.9", "10.0.0.254", "vieux.fr", 1, 0.02))
+    lignes.append((maintenant - 30, "10.0.0.1", "10.0.0.254", "d1x2y3.cloudfront.net", 1, 0.8))
+    lignes.append((maintenant - 2 * 86400, "10.0.0.9", "10.0.0.254", "vieux.fr", 1, 0.02))
     base = tmp_path / "detections.db"
     remplir(base, lignes)
     return base
@@ -75,7 +75,7 @@ def test_lire_requetes_toute_la_base(base_demo):
 
 
 def test_lire_requetes_depuis_un_instant(base_demo):
-    assert len(lire_requetes(base_demo, depuis=MAINTENANT - 3600)) == 29
+    assert len(lire_requetes(base_demo, depuis=time.time() - 3600)) == 29
 
 
 def test_lire_requetes_base_vide(tmp_path):

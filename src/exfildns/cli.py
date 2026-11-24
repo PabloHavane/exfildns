@@ -144,7 +144,7 @@ def commande_dashboard(args) -> int:
     env = {**os.environ, "EXFILDNS_BASE": str(Path(args.base).resolve())}
     commande = [sys.executable, "-m", "streamlit", "run", dashboard.__file__]
     # localhost par défaut : le dashboard montre les noms demandés et les postes, il ne doit
-    # pas être exposé sur le réseau sans le vouloir (Docker passe --adresse 0.0.0.0)
+    # pas être exposé sur le réseau sans le vouloir (dans un conteneur : --adresse 0.0.0.0)
     commande += ["--server.address", args.adresse, "--server.port", str(args.port)]
     commande += ["--server.headless", "true"]
     commande += ["--browser.gatherUsageStats", "false"]
