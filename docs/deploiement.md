@@ -16,6 +16,8 @@ flowchart LR
     B -->|lecture seule| T
     subgraph T [exfildns dashboard — sans privilège]
         A[alertes par domaine<br/>alertes.py] --> V[vues Streamlit<br/>dashboard.py]
+        Y[chiffres clés, file d'alertes<br/>synthese.py] --> V
+        Q[détail d'une requête<br/>detail.py] --> V
     end
     V -->|http://localhost:8501| U((Analyste))
     P[fichier .pcap] -.->|plan B : import| T
@@ -24,7 +26,7 @@ flowchart LR
 | Composant | Rôle | Privilèges |
 |---|---|---|
 | `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
-| `detections.db` | Base SQLite (mode WAL) : horodatage, poste, serveur DNS, nom demandé, type, score | — |
+| `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
 
 **Une alerte** est levée quand un même domaine reçoit au moins 5 requêtes jugées suspectes
@@ -132,22 +134,28 @@ sudo setcap cap_net_raw+ep .venv/bin/python-capture
 ## 5. Scénario de démonstration
 
 1. **Préparer** : modèle présent, `.env` renseigné, `docker compose up -d`, dashboard ouvert
-   (période « 15 dernières minutes »). Navigation normale : les requêtes s'affichent en bleu,
-   « Aucune alerte ».
+   (période « 15 dernières minutes »). Navigation normale : capteur « actif » dans le bandeau,
+   requêtes en bleu, file d'alertes vide.
 2. **Exfiltrer** : depuis un poste dont le trafic DNS passe par l'interface surveillée, lancer
    l'outil d'exfiltration vers le domaine de l'attaquant. *Outil et protocole à compléter avec
    l'issue #42 (homelab) ; d'ici là, la boucle `dig` de la section 3 ou le plan B ci-dessous.*
-3. **Détecter** : en quelques secondes, les requêtes apparaissent en rouge dans le graphique,
-   le bandeau d'alerte nomme le domaine de l'attaquant ; le tableau « Postes à l'origine des
-   requêtes suspectes » donne l'adresse du poste, celui des requêtes montre les données
-   encodées dans les noms.
-4. **Expliquer** : régler le seuil et le nombre de requêtes par alerte dans la barre latérale
+3. **Détecter** : en quelques secondes, les requêtes apparaissent en rouge dans le graphique
+   avec un marqueur d'alerte ; la file d'alertes nomme le domaine de l'attaquant, sa sévérité
+   et le poste à l'origine (aussi en tête du panneau « Top postes »).
+4. **Enquêter** : onglet **Requêtes**, filtrer sur le domaine, cliquer une requête : le
+   sous-domaine encodé est mis en évidence, ses features s'écartent de la moyenne des requêtes
+   jugées bénignes par le modèle, la
+   séquence montre la rafale, et l'essai de décodage révèle les octets exfiltrés (en
+   hexadécimal ou ASCII échappé). Exporter la sélection en CSV ou JSON.
+5. **Expliquer** : régler le seuil et le nombre de requêtes par alerte dans la barre latérale
    pour montrer leur effet ; renvoyer au notebook pour la méthode.
 
 ### Plan B : sans réseau
 
 Si le réseau de la salle empêche la démonstration en direct, l'onglet **Analyser une
-capture** du dashboard accepte un fichier `.pcap` (jusqu'à 100 Mo) et affiche les mêmes vues :
+capture** du dashboard accepte un fichier `.pcap` (jusqu'à 100 Mo) et affiche les vues de la
+supervision (l'étape « Enquêter », propre à la base de `sniff`, n'est pas disponible ; le
+bandeau reste celui de la capture en direct) :
 par exemple `data/Attacks/heavy_text.pcap` du dataset (1 alerte, 26 907 requêtes suspectes sur
 27 142) puis `data/Benign/benign_heavy_2.pcap` (aucune alerte). Les paquets du dataset étant
 tronqués, l'alerte porte sur « (nom incomplet dans la capture) » et non sur un nom de domaine.
@@ -161,7 +169,8 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
 | Aucune requête dans le dashboard | mauvaise interface | interface de `ip route get 1.1.1.1` |
 | « Droits insuffisants pour capturer » | ni root ni `CAP_NET_RAW` | voir section 4 |
 | « Capture impossible : … libpcap » | libpcap absent (hors Docker) | installer `libpcap0.8` / `libpcap` |
-| Heures décalées d'une heure | conteneur en UTC | `TZ` dans `.env` |
+| Heures décalées d'une heure, ou axe de l'activité DNS sans heures | conteneur en UTC, fuseau différent de celui du navigateur | `TZ` dans `.env` |
+| Capteur « silencieux » ou « inactif » alors que la capture tourne | aucune requête DNS depuis plus d'1 min (silencieux) ou 5 min (inactif) : l'état se déduit de la dernière requête reçue | normal sur un réseau calme ; `docker compose logs sniff` pour vérifier |
 | « Aucune base de détections » | la capture n'a encore rien écrit | lancer `sniff`, attendre une requête DNS |
 
 ## 7. Limites connues

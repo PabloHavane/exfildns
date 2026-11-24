@@ -127,13 +127,30 @@ Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
 uv run exfildns dashboard [--base detections.db] [-m models/exfildns.keras] [--port 8501] [--adresse localhost]
 ```
 
-Ouvre <http://localhost:8501> : chiffres clés de la période (requêtes analysées, suspectes,
-alertes, postes), alertes par domaine, activité DNS par minute, postes et serveurs concernés,
-requêtes suspectes les plus récentes. Seuil, nombre de requêtes pour une alerte et période se
-règlent dans la barre latérale ; la vue se rafraîchit toutes les 5 secondes.
+Ouvre <http://localhost:8501>, une vue pensée pour un analyste SOC :
+
+- **bandeau d'état** : capteur actif / silencieux (plus d'1 min) / inactif (plus de 5 min)
+  d'après l'âge de la dernière requête en base, ou « aucune requête » si la base est vide ; modèle chargé (nom, date, empreinte), seuil et période ;
+- **Supervision en direct** : 8 chiffres clés avec leur variation par rapport à la période
+  précédente, activité DNS (barres bénignes / suspectes à pas fixe, marqueurs d'alerte), file
+  d'alertes triée par sévérité puis date, top domaines, top postes, types de requêtes,
+  histogramme des scores avec le seuil, requêtes suspectes les plus récentes ;
+- **Requêtes** : tableau filtrable (poste, domaine, verdict, score, texte) ; un clic sur une
+  ligne ouvre son détail : nom découpé (sous-domaine en évidence), features comparées à la
+  moyenne des requêtes jugées bénignes par le modèle sur la période, séquence du même poste
+  vers le même domaine, essais de décodage (base32, base64, hexadécimal) **affichés
+  seulement** en hexadécimal ou ASCII échappé. Export CSV ou JSON de la vue filtrée (5 000
+  requêtes les plus récentes au plus), de la requête seule (JSON) ou de sa séquence (CSV).
+
+Seuil, nombre de requêtes pour une alerte et période se règlent dans la barre latérale ; la
+supervision se rafraîchit toutes les 5 secondes (interrupteur), l'onglet Requêtes seulement
+sur le bouton « Actualiser » ou un changement de période, pour ne pas perdre la ligne
+sélectionnée. La sévérité d'une alerte
+(haute, moyenne, basse) aide au tri sans changer quelles alertes sont levées.
 
 L'onglet **Analyser une capture** accepte un fichier `.pcap` / `.pcapng` et l'analyse comme
-`exfildns scan`, avec les mêmes vues (utile sans accès au réseau, ou pour rejouer une capture).
+`exfildns scan`, avec les vues de la supervision (sans variations ni onglet Requêtes ; utile
+sans accès au réseau, ou pour rejouer une capture).
 Le modèle est celui de `-m` (relancer le dashboard après un réentraînement : les analyses sont
 mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
@@ -189,8 +206,10 @@ uv run ruff check . && uv run ruff format --check .
 
 Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (features d'un nom
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
-explication), `cli.py` (commandes). Conventions (GitLab Flow, commits, branches) :
-[CLAUDE.md](CLAUDE.md).
+explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
+(regroupement par domaine, liste blanche), `dashboard.py` (Streamlit), `synthese.py` (chiffres
+clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
+Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 
 ## Licence
 
