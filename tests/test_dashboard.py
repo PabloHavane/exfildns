@@ -329,11 +329,11 @@ def test_app_sans_rafraichissement(base_demo, monkeypatch):
 def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     appels = []
 
-    def faux_call(commande, env):
+    def faux_exec(programme, commande, env):
+        assert programme == commande[0] == sys.executable  # l'interpréteur courant
         appels.append((commande, env))
-        return 0
 
-    monkeypatch.setattr("exfildns.cli.subprocess.call", faux_call)
+    monkeypatch.setattr("exfildns.cli.os.execvpe", faux_exec)
     monkeypatch.chdir(tmp_path)
 
     code = main(["dashboard", "--base", "detections.db", "--port", "9000"])
@@ -353,7 +353,7 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
 
 def test_cli_dashboard_adresse_explicite(monkeypatch):
     appels = []
-    monkeypatch.setattr("exfildns.cli.subprocess.call", lambda c, env: appels.append(c) or 0)
+    monkeypatch.setattr("exfildns.cli.os.execvpe", lambda p, c, env: appels.append(c))
 
     main(["dashboard", "--adresse", "0.0.0.0"])
 
