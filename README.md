@@ -153,7 +153,7 @@ Deux services, une seule image : `sniff` (capture sur le réseau de l'hôte) et 
 Le modèle `models/exfildns.keras` doit exister (monté en lecture seule) ; les détections sont
 dans le volume `detections`. Les deux services tournent **sans root**, système de fichiers en
 lecture seule ; seule la capture a la capacité `NET_RAW`, et le dashboard n'est publié que sur
-`127.0.0.1`. `docker compose stop` arrête proprement la capture.
+`127.0.0.1`. `docker compose stop` arrête proprement la capture et le dashboard.
 
 ## Notebook de méthodologie
 

@@ -330,6 +330,7 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     appels = []
 
     def faux_exec(programme, commande, env):
+        assert programme == commande[0] == sys.executable  # l'interpréteur courant
         appels.append((commande, env))
 
     monkeypatch.setattr("exfildns.cli.os.execvpe", faux_exec)
