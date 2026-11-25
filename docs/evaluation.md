@@ -127,20 +127,21 @@ Le client iodine 0.7.0 envoie des blocs de 200 Ko aléatoires vers son serveur s
 Docker isolé ; `exfildns sniff` (modèle MLP du dépôt, seuil 0,5) enregistre chaque requête reçue
 par le serveur. Comptage dans la base après ~2 minutes :
 
-| Requêtes vers `tunnel.labo` | Nombre | Détectées (score ≥ 0,5) | Manquées |
+| Requêtes vers `tunnel.labo` | Nombre | Détectées (score ≥ 0,5) | Non détectées |
 |---|---|---|---|
 | Données (nom > 40 caractères, ~238 en moyenne) | 1 862 | **1 833 (98,4 %)** | 29 |
-| Contrôle (ouverture du tunnel, attente : `pabyaoly.tunnel.labo`…) | 21 | 0 | 21 |
+| Contrôle (ouverture du tunnel, attente : `pabyaoly.tunnel.labo`…) | 21 | 0 | 21 (sans données : hors taux) |
 
 Le domaine `tunnel.labo` dépasse largement les 5 requêtes suspectes : l'alerte apparaît dans le
 dashboard. Les requêtes de contrôle, courtes, ne transportent presque rien et ressemblent à des
 noms ordinaires : les manquer est attendu.
 
 **Limite importante** : sans résolveur entre le client et le serveur, iodine choisit l'encodage
-le plus dense (*Base128*, octets non ASCII), très différent d'un nom légitime. À travers un vrai
-résolveur récursif, il peut se replier, selon ce que le résolveur laisse passer, sur du base64 ou du **base32 en minuscules** ; ce dernier, le modèle ne le
-détecte pas (0 % lors d’un essai sur noms générés). iodine 0.7.0 ne permet pas d'imposer
-l'encodage montant : ce cas reste à valider (généralisation du modèle, #62).
+le plus dense (*Base128*, octets non ASCII), très différent d'un nom légitime. À travers un
+vrai résolveur récursif, il peut se replier, selon ce que le résolveur laisse passer, sur du
+base64 ou du **base32 en minuscules** ; ce dernier, le modèle ne le détecte pas (0 % lors d'un
+essai sur noms générés). iodine 0.7.0 ne permet pas d'imposer l'encodage montant : ce cas reste
+à valider (généralisation du modèle, #62).
 
 ## Interprétation honnête : le dataset est trop facile
 

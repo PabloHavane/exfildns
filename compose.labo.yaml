@@ -33,6 +33,8 @@ services:
   victime:
     <<: *iodine
     depends_on: [attaquant, sniff]
+    # Si le serveur n'est pas encore prêt, iodine échoue : on réessaie
+    restart: on-failure
     command:
       - sh
       - -c
