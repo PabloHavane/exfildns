@@ -75,7 +75,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     command: [dashboard, --base, /data/detections.db, --modele, /models/exfildns.keras,
-              --adresse, 0.0.0.0]
+              --adresse, 0.0.0.0, --statuts, /etat/statuts.db]
     # Hors du réseau interne (un réseau interne ne peut pas publier de port) ; 8502 pour
     # pouvoir tourner à côté du déploiement principal
     ports:
@@ -83,6 +83,7 @@ services:
     volumes:
       - ./models:/models:ro
       - detections:/data:ro
+      - statuts:/etat
 
 networks:
   labo:
@@ -93,3 +94,4 @@ networks:
 
 volumes:
   detections:
+  statuts:

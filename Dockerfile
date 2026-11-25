@@ -37,8 +37,8 @@ RUN cp "$(readlink -f /usr/local/bin/python3.12)" /app/.venv/bin/python-capture 
     && setcap cap_net_raw+ep /app/.venv/bin/python-capture \
     && apt-get purge -y libcap2-bin \
     && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin exfildns \
-    && mkdir /data \
-    && chown exfildns /data
+    && mkdir /data /etat \
+    && chown exfildns /data /etat
 ENV PATH="/app/.venv/bin:$PATH" \
     HOME=/tmp \
     PYTHONUNBUFFERED=1

@@ -139,3 +139,14 @@ paquet Debian officiel, version épinglée, sur une image Debian épinglée par 
 **Justification** : le homelab (#42) n'est plus disponible ; iodine est un vrai outil, empaqueté
 par Debian (pas d'image tierce), et le labo ne dépend d'aucune infrastructure externe. Prix :
 `NET_ADMIN` et `/dev/net/tun` pour l'interface tunnel d'iodine, limités aux deux conteneurs iodine.
+
+## 2026-11-25 — Statut des alertes dans une base séparée (#78)
+
+Une alerte a un statut (nouvelle, en cours, faux positif, close), accroché au **domaine parent**
+puisque les alertes sont recalculées à chaque affichage. Il vit dans `statuts.db`, écrite par le
+dashboard seul (volume `statuts` sous Docker) : `detections.db` reste en lecture seule pour lui,
+ce qui protège les détections et marche aussi quand `sniff` tourne en root hors Docker (fichier
+de détections appartenant à root). « Faux positif » est un statut, réversible, et non un ajout à
+la liste blanche ; pas d'auteur enregistré (aucune authentification). Une alerte close qui reçoit
+de nouvelles requêtes suspectes redevient nouvelle ; « Alertes ouvertes » compte nouvelles et en
+cours.

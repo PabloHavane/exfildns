@@ -150,6 +150,8 @@ def commande_dashboard(args) -> int:
         "EXFILDNS_BASE": str(Path(args.base).resolve()),
         "EXFILDNS_MODELE": str(Path(args.modele).resolve()),
     }
+    if args.statuts:  # sinon : statuts.db à côté de la base (voir dashboard.page)
+        env["EXFILDNS_STATUTS"] = str(Path(args.statuts).resolve())
     commande = [sys.executable, "-m", "streamlit", "run", dashboard.__file__]
     # localhost par défaut : le dashboard montre les noms demandés et les postes, il ne doit
     # pas être exposé sur le réseau sans le vouloir (dans un conteneur : --adresse 0.0.0.0)
@@ -228,6 +230,11 @@ def build_parser() -> argparse.ArgumentParser:
     tableau = commandes.add_parser("dashboard", help="ouvre le dashboard web de supervision")
     tableau.add_argument("--base", default=BASE_PAR_DEFAUT, help="base SQLite écrite par sniff")
     tableau.add_argument("--port", type=int, default=8501, help="port HTTP du dashboard")
+    tableau.add_argument(
+        "--statuts",
+        help="base SQLite des statuts d'alertes, écrite par le dashboard (défaut : statuts.db "
+        "dans le dossier de --base)",
+    )
     tableau.add_argument(
         "-m", "--modele", default=MODELE_PAR_DEFAUT, help="modèle pour analyser une capture"
     )

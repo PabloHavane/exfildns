@@ -124,7 +124,7 @@ Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
 ### Superviser avec le dashboard
 
 ```bash
-uv run exfildns dashboard [--base detections.db] [-m models/exfildns.keras] [--port 8501] [--adresse localhost]
+uv run exfildns dashboard [--base detections.db] [--statuts statuts.db] [-m models/exfildns.keras] [--port 8501] [--adresse localhost]
 ```
 
 Ouvre <http://localhost:8501>, une vue pensée pour un analyste SOC :
@@ -134,7 +134,11 @@ Ouvre <http://localhost:8501>, une vue pensée pour un analyste SOC :
 - **Supervision en direct** : 8 chiffres clés avec leur variation par rapport à la période
   précédente, activité DNS (barres bénignes / suspectes à pas fixe, marqueurs d'alerte), file
   d'alertes triée par sévérité puis date, top domaines, top postes, types de requêtes,
-  histogramme des scores avec le seuil, requêtes suspectes les plus récentes ;
+  histogramme des scores avec le seuil, requêtes suspectes les plus récentes. Chaque alerte a
+  un **statut** (nouvelle, en cours, faux positif, close) et un commentaire, modifiables depuis
+  sa carte ; la file montre par défaut les alertes ouvertes (nouvelles et en cours), un filtre
+  affiche les faux positifs, les closes ou toutes. Une alerte close qui reçoit de nouvelles
+  requêtes suspectes redevient nouvelle ;
 - **Requêtes** : tableau filtrable (poste, domaine, verdict, score, texte) ; un clic sur une
   ligne ouvre son détail : nom découpé (sous-domaine en évidence), features comparées à la
   moyenne des requêtes jugées bénignes par le modèle sur la période, séquence du même poste
@@ -155,7 +159,8 @@ Le modèle est celui de `-m` (relancer le dashboard après un réentraînement :
 mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
 Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il peut tourner
-pendant la capture. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
+pendant la capture. Il n'écrit que dans sa propre base, celle des statuts d'alertes
+(`--statuts`, par défaut `statuts.db` dans le dossier de `--base`). Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
 
 ## Déploiement avec Docker
@@ -168,7 +173,8 @@ docker compose up -d --build
 
 Deux services, une seule image : `sniff` (capture sur le réseau de l'hôte) et `dashboard`.
 Le modèle `models/exfildns.keras` doit exister (monté en lecture seule) ; les détections sont
-dans le volume `detections`. Les deux services tournent **sans root**, système de fichiers en
+dans le volume `detections`, les statuts d'alertes dans le volume `statuts` (seul volume où
+le dashboard écrit). Les deux services tournent **sans root**, système de fichiers en
 lecture seule ; seule la capture a la capacité `NET_RAW`, et le dashboard n'est publié que sur
 `127.0.0.1`. `docker compose stop` arrête proprement la capture et le dashboard.
 Si la capture redémarre en boucle (modèle absent, interface inconnue, droits) : `docker compose
@@ -209,7 +215,7 @@ uv run ruff check . && uv run ruff format --check .
 Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (features d'un nom
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
-(regroupement par domaine, liste blanche), `dashboard.py` (Streamlit), `synthese.py` (chiffres
+(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `dashboard.py` (Streamlit), `synthese.py` (chiffres
 clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 

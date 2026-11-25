@@ -18,6 +18,7 @@ flowchart LR
         A[alertes par domaine<br/>alertes.py] --> V[vues Streamlit<br/>dashboard.py]
         Y[chiffres clés, file d'alertes<br/>synthese.py] --> V
         Q[détail d'une requête<br/>detail.py] --> V
+        V <-->|statut des alertes<br/>statuts.py| E[(statuts.db<br/>SQLite)]
     end
     V -->|http://localhost:8501| U((Analyste))
     P[fichier .pcap] -.->|plan B : import| T
@@ -28,6 +29,7 @@ flowchart LR
 | `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
 | `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
+| `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle | — |
 
 **Une alerte** est levée quand un même domaine reçoit au moins 5 requêtes jugées suspectes
 (probabilité ≥ 0,5) : un tunnel DNS en envoie des centaines, un faux positif isolé une seule.
@@ -100,11 +102,13 @@ vers `exfil-test.example`. Ce n'est qu'un test de l'installation : la démonstra
 vrai outil d'exfiltration (section 5).
 
 Arrêt : `docker compose stop` (la capture s'arrête proprement et affiche son bilan).
-Les détections restent dans le volume `detections` ; `docker compose down -v` les efface.
+Les détections restent dans le volume `detections`, les statuts d'alertes dans le volume
+`statuts` ; `docker compose down -v` efface les deux.
 
 **Sécurité du déploiement** : les deux services tournent sous un utilisateur non root
 (uid 10001), sans aucune capacité Linux sauf `NET_RAW` pour la capture, avec un système de
-fichiers en lecture seule. Le dashboard n'est publié que sur `127.0.0.1` : il affiche les noms
+fichiers en lecture seule. Le dashboard monte les détections en lecture seule et n'écrit que
+dans le volume `statuts`. Le dashboard n'est publié que sur `127.0.0.1` : il affiche les noms
 demandés et les adresses des postes. Pour y accéder à distance, passer par un tunnel SSH
 (`ssh -L 8501:localhost:8501 machine`) plutôt que de l'exposer.
 
@@ -164,7 +168,7 @@ sudo setcap cap_net_raw+ep .venv/bin/python-capture
 ```bash
 docker compose -f compose.labo.yaml up --build -d   # prérequis : models/exfildns.keras, /dev/net/tun
 docker compose -f compose.labo.yaml logs -f victime # « Connection setup complete » : le tunnel est ouvert
-docker compose -f compose.labo.yaml down -v         # tout arrêter et vider la base du labo
+docker compose -f compose.labo.yaml down -v         # tout arrêter et vider les bases du labo
 ```
 
 - **Isolement** : le réseau `labo` est `internal` (aucune route vers Internet) ; seul le
