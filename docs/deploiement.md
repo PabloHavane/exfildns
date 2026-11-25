@@ -66,10 +66,10 @@ rien : c'est le premier point à vérifier si aucune requête n'apparaît.
 git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
 cp /chemin/vers/exfildns.keras models/          # si le modèle vient d'ailleurs
 cp .env.example .env                            # puis renseigner EXFILDNS_INTERFACE
-docker compose up -d --build                    # premier build : ~1 Go à télécharger
+docker compose up -d --build                    # premier build : ~0,7 Go à télécharger
 ```
 
-Les rebuilds suivants sont rapides : les dépendances (2,8 Go) forment une couche à part, refaite
+Les rebuilds suivants sont rapides : les dépendances (~2,2 Go) forment une couche à part, refaite
 seulement quand `uv.lock` change ; une modification du code ne refait qu'une couche de quelques
 centaines de Ko.
 
@@ -220,4 +220,6 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
   en clair sur le port 53.
 - **Une seule machine** : la capture voit le trafic de la machine qui l'héberge (ou d'un port
   miroir). Surveiller un réseau entier demande de la placer sur la passerelle ou le résolveur.
-- **Image Docker lourde** (~3,8 Go, dont 1,9 Go de TensorFlow) : allègement suivi dans #58.
+- **Image Docker encore lourde** (~2,9 Go, dont 1,3 Go de TensorFlow CPU) pour un MLP de
+  865 paramètres. Prédire sans TensorFlow (Keras 3 avec jax) gagnerait ~1,5 Go de plus (scores
+  identiques à 3e-7 près), au prix de plus de changements : écarté avant la soutenance (#58).

@@ -150,3 +150,11 @@ de détections appartenant à root). « Faux positif » est un statut, réversib
 la liste blanche ; pas d'auteur enregistré (aucune authentification). Une alerte close qui reçoit
 de nouvelles requêtes suspectes redevient nouvelle ; « Alertes ouvertes » compte nouvelles et en
 cours.
+
+## 2026-11-26 — `tensorflow-cpu` sous Linux x86_64 (#58)
+
+`pyproject.toml` installe `tensorflow-cpu` sous Linux x86_64 (marqueurs de plateforme) et
+`tensorflow` ailleurs (macOS, ARM). **Justification** : aucun GPU n'est utilisé ; l'image passe
+de 3,8 à 2,9 Go et les scores du modèle sont identiques (écart nul sur 2 000 requêtes). Prédire
+sans TensorFlow (Keras 3, dont le backend NumPy demande jax ; ~1,5 Go de moins) a été mesuré viable mais écarté avant la
+soutenance : plus de code et de dépendances à changer.
