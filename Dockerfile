@@ -35,9 +35,9 @@ FROM python:3.12.16-slim-bookworm@sha256:82836454a795d9d75549a9e157fd08dbac6c383
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpcap0.8 libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
-# Dépendances (~1,9 Go) : couche inchangée tant que uv.lock ne change pas. Copier le venv complet
+# Dépendances (~2,2 Go) : couche inchangée tant que uv.lock ne change pas. Copier le venv complet
 # de l'étape construction la referait à chaque modification du code, et l'export d'une couche
-# de près de 2 Go (compression) prend plus d'une minute.
+# de plus de 2 Go (compression) prend plus d'une minute.
 COPY --from=dependances /app/.venv /app/.venv
 # Copie dédiée de l'interpréteur, seule à pouvoir capturer (capacité de fichier NET_RAW) :
 # placée dans le venv, elle en utilise les paquets. Le Python commun reste sans capacité,
