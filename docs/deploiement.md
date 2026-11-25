@@ -69,6 +69,10 @@ cp .env.example .env                            # puis renseigner EXFILDNS_INTER
 docker compose up -d --build                    # premier build : ~1 Go à télécharger
 ```
 
+Les rebuilds suivants sont rapides : les dépendances (2,8 Go) forment une couche à part, refaite
+seulement quand `uv.lock` change ; une modification du code ne refait qu'une couche de quelques
+centaines de Ko.
+
 Ouvrir <http://localhost:8501>. Vérifier que la capture tourne :
 
 ```bash
