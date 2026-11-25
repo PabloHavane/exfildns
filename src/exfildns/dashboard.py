@@ -2,7 +2,8 @@
 
 Lancement : `exfildns dashboard` (ou `streamlit run src/exfildns/dashboard.py`).
 La base à lire est donnée par la variable d'environnement `EXFILDNS_BASE`, le modèle utilisé
-pour analyser une capture importée par `EXFILDNS_MODELE`.
+pour analyser une capture importée par `EXFILDNS_MODELE`, la base des statuts d'alertes (la seule
+où le dashboard écrit) par `EXFILDNS_STATUTS` (par défaut `statuts.db` à côté de la base).
 
 Les fonctions de préparation des données sont pures et testées sans navigateur ; l'interface
 n'est construite que lorsque Streamlit exécute ce fichier (`page()`, tout en bas).
@@ -20,10 +21,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from exfildns import SEUIL, __version__, detail, synthese
+from exfildns import SEUIL, __version__, detail, statuts, synthese
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
 
 BASE_PAR_DEFAUT = "detections.db"
+STATUTS = "statuts.db"  # nom par défaut de la base des statuts, à côté de la base des détections
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
 CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
@@ -391,7 +393,7 @@ def afficher_indicateurs(st, chiffres: dict, variations: dict) -> None:
         chiffres["alertes"],
         ecart("alertes"),
         delta_color="inverse",
-        help="Toutes les alertes de la période (pas encore de statut).",
+        help="Alertes de la période au statut « nouvelle » ou « en cours ».",
     )
     colonnes[4].metric("Postes", chiffres["postes"], ecart("postes"), delta_color="off")
     colonnes[5].metric(
@@ -413,20 +415,41 @@ def afficher_indicateurs(st, chiffres: dict, variations: dict) -> None:
     )
 
 
-def afficher_file_alertes(st, resume: pd.DataFrame, min_requetes: int) -> None:
-    """File d'alertes : une carte par alerte, la plus grave et la plus récente en tête."""
+# filtre de la file d'alertes -> statuts affichés
+FILTRES_ALERTES = {
+    "ouvertes": statuts.OUVERTS,
+    "faux positifs": ("faux_positif",),
+    "closes": ("close",),
+    "toutes": tuple(statuts.STATUTS),
+}
+
+
+def afficher_file_alertes(
+    st, resume: pd.DataFrame, min_requetes: int, chemin_statuts: str | None = None
+) -> None:
+    """File d'alertes : une carte par alerte, la plus grave et la plus récente en tête.
+
+    Avec `chemin_statuts` (supervision en direct), chaque carte montre son statut et permet de
+    le changer ; un filtre choisit les statuts affichés (par défaut : alertes ouvertes).
+    """
     file = synthese.file_alertes(resume, min_requetes)
+    if chemin_statuts is not None:
+        filtre = st.segmented_control(
+            "Alertes affichées", list(FILTRES_ALERTES), default="ouvertes", key="filtre_alertes"
+        )
+        file = file[file["statut"].isin(FILTRES_ALERTES[filtre or "ouvertes"])]
     st.subheader(f"File d'alertes ({len(file)})")
     if file.empty:
-        st.caption("Aucune alerte sur la période : pas d'exfiltration détectée.")
+        st.caption("Aucune alerte à afficher sur la période.")
         return
     with st.container(height=380, border=False):
         for alerte in file.head(ALERTES_MAX).itertuples():
             with st.container(border=True):
                 couleur = synthese.SEVERITES[alerte.severite]
                 # le domaine vient du réseau : échappé avant d'entrer dans du Markdown
+                statut = f":gray-badge[{statuts.STATUTS[alerte.statut]}] " if chemin_statuts else ""
                 st.markdown(
-                    f":{couleur}-badge[{alerte.severite.upper()}] "
+                    f":{couleur}-badge[{alerte.severite.upper()}] {statut}"
                     f"**{synthese.echapper_markdown(alerte.domaine)}**"
                 )
                 st.caption(
@@ -438,8 +461,42 @@ def afficher_file_alertes(st, resume: pd.DataFrame, min_requetes: int) -> None:
                     "%d/%m %H:%M:%S"
                 )
                 st.caption(f"du {debut} au {fin}")
+                if chemin_statuts is not None:
+                    afficher_statut(st, alerte, chemin_statuts)
         if len(file) > ALERTES_MAX:
             st.caption(f"… et {len(file) - ALERTES_MAX} autre(s).")
+
+
+def afficher_statut(st, alerte, chemin_statuts: str) -> None:
+    """Statut de l'alerte et formulaire pour le changer (écrit dans la base des statuts)."""
+    if pd.notna(alerte.commentaire):
+        st.text(f"Note : {alerte.commentaire}")  # st.text : saisie affichée telle quelle
+    cle = f"statut_{alerte.domaine}"
+
+    def changer() -> None:
+        try:
+            statuts.enregistrer(
+                chemin_statuts,
+                alerte.domaine,
+                st.session_state[f"{cle}_choix"],
+                st.session_state[f"{cle}_note"],
+            )
+        except (sqlite3.Error, OSError) as erreur:
+            st.session_state["erreur_statut"] = (
+                f"Statut non enregistré ({chemin_statuts}) : {erreur}"
+            )
+
+    with st.popover("Changer le statut"):
+        with st.form(cle, border=False):
+            st.selectbox(
+                "Statut",
+                list(statuts.STATUTS),
+                index=list(statuts.STATUTS).index(alerte.statut),
+                format_func=statuts.STATUTS.get,
+                key=f"{cle}_choix",
+            )
+            st.text_input("Commentaire", value=alerte.commentaire or "", key=f"{cle}_note")
+            st.form_submit_button("Enregistrer", on_click=changer)
 
 
 def afficher_panneaux(st, requetes: pd.DataFrame, seuil: float, onglet: str) -> None:
@@ -490,19 +547,30 @@ def afficher_resultats(
     min_requetes: int,
     precedentes: pd.DataFrame | None = None,
     onglet: str = "direct",
+    chemin_statuts: str | None = None,
 ) -> None:
     """Chiffres clés, timeline, file d'alertes, panneaux « top » et requêtes suspectes récentes.
 
     `precedentes` : requêtes de la période précédente, pour afficher les variations (aucune
     si elle est vide). `onglet` préfixe la clé des widgets (`direct` ou `capture`).
+    `chemin_statuts` : base des statuts d'alertes ; sans elle, toutes les alertes sont nouvelles.
     """
-    resume = alertes(requetes, seuil, min_requetes)
+    if "erreur_statut" in st.session_state:
+        st.error(st.session_state.pop("erreur_statut"))
+    connus = (
+        statuts.lire(chemin_statuts) if chemin_statuts else pd.DataFrame(columns=statuts.COLONNES)
+    )
+
+    def resume_de(lues: pd.DataFrame) -> pd.DataFrame:
+        return statuts.appliquer(alertes(lues, seuil, min_requetes), connus)
+
+    resume = resume_de(requetes)
     suspectes = requetes[requetes["score"] >= seuil]
-    chiffres = synthese.indicateurs(requetes, seuil, resume)
+    chiffres = synthese.indicateurs(requetes, seuil, statuts.ouvertes(resume))
     avant = None
     # période précédente vide (capture arrêtée) : une variation « +625 » ne dirait rien
     if precedentes is not None and not precedentes.empty:
-        avant = synthese.indicateurs(precedentes, seuil, alertes(precedentes, seuil, min_requetes))
+        avant = synthese.indicateurs(precedentes, seuil, statuts.ouvertes(resume_de(precedentes)))
     afficher_indicateurs(st, chiffres, synthese.ecarts(chiffres, avant))
 
     if requetes.empty:
@@ -520,7 +588,7 @@ def afficher_resultats(
         )
         st.altair_chart(graphique, width="stretch")
     with droite:
-        afficher_file_alertes(st, resume, min_requetes)
+        afficher_file_alertes(st, resume, min_requetes, chemin_statuts)
 
     afficher_panneaux(st, requetes, seuil, onglet)
 
@@ -535,7 +603,9 @@ def afficher_resultats(
     )
 
 
-def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) -> None:
+def supervision(
+    st, base: str, seuil: float, min_requetes: int, periode: str, chemin_statuts: str
+) -> None:
     """Onglet de supervision en direct : requêtes de la base écrite par `exfildns sniff`."""
     if not Path(base).exists():
         st.info(
@@ -545,7 +615,9 @@ def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) ->
         return
     duree = PERIODES[periode]
     if duree is None:  # toute la base : pas de période précédente
-        afficher_resultats(st, lire_requetes(base), seuil, min_requetes)
+        afficher_resultats(
+            st, lire_requetes(base), seuil, min_requetes, chemin_statuts=chemin_statuts
+        )
         return
     # une seule lecture pour la période et la précédente (variations des chiffres clés)
     debut = time.time() - duree
@@ -556,6 +628,7 @@ def supervision(st, base: str, seuil: float, min_requetes: int, periode: str) ->
         seuil,
         min_requetes,
         precedentes=lues[lues["timestamp"] < debut],
+        chemin_statuts=chemin_statuts,
     )
 
 
@@ -812,6 +885,7 @@ def page() -> None:
     st.set_page_config(page_title="exfildns", layout="wide")
     base = os.environ.get("EXFILDNS_BASE", BASE_PAR_DEFAUT)
     chemin_modele = os.environ.get("EXFILDNS_MODELE", MODELE_PAR_DEFAUT)
+    chemin_statuts = os.environ.get("EXFILDNS_STATUTS") or str(Path(base).with_name(STATUTS))
 
     with st.sidebar:
         st.header("Réglages")
@@ -836,7 +910,7 @@ def page() -> None:
 
     @st.fragment(run_every=rafraichissement)
     def vue_directe() -> None:
-        supervision(st, base, seuil, int(min_requetes), periode)
+        supervision(st, base, seuil, int(min_requetes), periode, chemin_statuts)
 
     with direct:
         vue_directe()

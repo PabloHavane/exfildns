@@ -12,7 +12,7 @@ from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import Ether
 from streamlit.testing.v1 import AppTest
 
-from exfildns import dashboard
+from exfildns import dashboard, statuts
 from exfildns.alertes import alertes
 from exfildns.cli import main
 from exfildns.dashboard import (
@@ -998,3 +998,77 @@ def test_app_supervision_et_capture_en_meme_temps(base_demo, tmp_path, modele, m
 
     assert not at.exception
     assert at.tabs[0].metric and at.tabs[2].metric
+
+
+# --- statut des alertes (#78) ---
+
+
+def changer_statut(at, statut, note=""):
+    """Choisit `statut` dans le formulaire de la première alerte et l'enregistre."""
+    onglet = at.tabs[0]
+    onglet.selectbox(key="statut_attaquant.example_choix").select(statut)
+    onglet.text_input(key="statut_attaquant.example_note").input(note)
+    next(b for b in onglet.button if b.label == "Enregistrer").click()
+    return at.run()
+
+
+def alertes_ouvertes(at):
+    return next(m.value for m in at.metric if m.label == "Alertes ouvertes")
+
+
+def test_app_alerte_nouvelle_par_defaut(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert ":gray-badge[nouvelle]" in texte(at.tabs[0])
+    assert not (base_demo.parent / "statuts.db").exists()  # rien d'écrit sans action
+
+
+def test_app_alerte_en_cours_reste_ouverte(base_demo, monkeypatch):
+    at = changer_statut(app(base_demo, monkeypatch).run(), "en_cours", "poste isolé")
+
+    assert not at.exception
+    assert alertes_ouvertes(at) == "1"
+    assert ":gray-badge[en cours]" in texte(at.tabs[0])
+    assert "Note : poste isolé" in [t.value for t in at.tabs[0].text]
+    ligne = statuts.lire(base_demo.parent / "statuts.db").iloc[0]
+    assert (ligne["domaine"], ligne["statut"]) == ("attaquant.example", "en_cours")
+
+
+def test_app_faux_positif_sort_de_la_file(base_demo, monkeypatch):
+    at = changer_statut(app(base_demo, monkeypatch).run(), "faux_positif")
+
+    assert not at.exception
+    assert alertes_ouvertes(at) == "0"
+    assert "File d'alertes (0)" in [s.value for s in at.tabs[0].subheader]
+
+    at.tabs[0].button_group(key="filtre_alertes").set_value("faux positifs").run()
+
+    assert "File d'alertes (1)" in [s.value for s in at.tabs[0].subheader]
+    assert ":gray-badge[faux positif]" in texte(at.tabs[0])
+
+
+def test_app_alerte_close_rouverte_par_de_nouvelles_requetes(base_demo, monkeypatch):
+    # close avant les requêtes suspectes : elle redevient nouvelle
+    statuts.enregistrer(base_demo.parent / "statuts.db", "attaquant.example", "close", "", 1.0)
+    at = app(base_demo, monkeypatch).run()
+
+    assert alertes_ouvertes(at) == "1"
+    assert ":gray-badge[nouvelle]" in texte(at.tabs[0])
+
+    at = changer_statut(at, "close")  # close maintenant : plus de requête depuis
+
+    assert alertes_ouvertes(at) == "0"
+    assert "File d'alertes (0)" in [s.value for s in at.tabs[0].subheader]
+
+
+def test_app_statut_base_non_inscriptible(base_demo, tmp_path, monkeypatch):
+    (tmp_path / "fichier").write_text("")
+    monkeypatch.setenv("EXFILDNS_STATUTS", str(tmp_path / "fichier" / "statuts.db"))
+    at = app(base_demo, monkeypatch).run()
+
+    at = changer_statut(at, "close")  # le dossier parent est un fichier : écriture impossible
+
+    assert not at.exception
+    assert "Statut non enregistré" in at.error[0].value
+    assert alertes_ouvertes(at) == "1"

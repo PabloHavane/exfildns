@@ -68,7 +68,9 @@ def appliquer(resume: pd.DataFrame, statuts: pd.DataFrame) -> pd.DataFrame:
     """
     connus = statuts.set_index("domaine")
     statut = resume["domaine"].map(connus["statut"]).astype(object).fillna("nouvelle")
-    rouverte = (statut == "close") & (resume["fin"] > resume["domaine"].map(connus["modifie_le"]))
+    # astype(float) : colonnes sans type quand il n'y a aucune alerte ou aucun statut
+    clos_le = resume["domaine"].map(connus["modifie_le"]).astype(float)
+    rouverte = (statut == "close") & (resume["fin"].astype(float) > clos_le)
     return resume.assign(
         statut=statut.mask(rouverte, "nouvelle"),
         commentaire=resume["domaine"].map(connus["commentaire"]),
