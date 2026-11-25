@@ -32,8 +32,14 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
-      - name: Validation de compose.yaml
-        run: EXFILDNS_INTERFACE=eth0 docker compose config -q
+      - name: Lint du Dockerfile du mini-labo
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: labo/Dockerfile
+      - name: Validation de compose.yaml et compose.labo.yaml
+        run: |
+          EXFILDNS_INTERFACE=eth0 docker compose config -q
+          docker compose -f compose.labo.yaml config -q
       - name: Construction de l'image
         run: docker build -t exfildns:ci .
       - name: L'image démarre, sans root

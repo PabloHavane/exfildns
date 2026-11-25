@@ -77,17 +77,17 @@ qui écrit dans une base SQLite ; le dashboard Streamlit la lit sans privilège.
 bibliothèque standard et suffit pour un seul écrivain. Déploiement par Docker compose (deux
 services), relu par l'agent `relecteur-docker`.
 
-## 2026-11-24 — Alertes par domaine parent (≥ 5 requêtes suspectes) et liste blanche
-Le modèle juge chaque requête seule ; un tunnel, lui, envoie beaucoup de requêtes vers un même
-domaine. Une alerte n'est levée que si un domaine parent (deux derniers labels) reçoit au moins
-5 requêtes suspectes : un faux positif isolé (nom long d'un CDN) n'alerte pas. Une liste blanche
-(CDN et cloud connus, complétable par fichier) écarte les services légitimes. Les seuils seront
-ajustés sur le trafic réel du homelab (#42). Limite : « deux derniers labels » se trompe sur
-les suffixes comme `.co.uk`, sans gêner la détection d'un tunnel.
-La fonction compte sur le tableau qu'on lui donne, sans fenêtre glissante : `scan` lui passe la
-capture entière, le dashboard la période choisie (filtre SQL). Le code de sortie de `scan` vaut 1
-seulement s'il y a une **alerte** (et non plus dès une requête suspecte), pour que les scripts
-ne subissent pas les faux positifs isolés.
+## 2026-11-24 — Alertes par domaine parent (≥ 5 requêtes suspectes) et liste blanche Le modèle
+juge chaque requête seule ; un tunnel, lui, envoie beaucoup de requêtes vers un même domaine.
+Une alerte n'est levée que si un domaine parent (deux derniers labels) reçoit au moins 5
+requêtes suspectes : un faux positif isolé (nom long d'un CDN) n'alerte pas. Une liste blanche
+(CDN et cloud connus, complétable par fichier) écarte les services légitimes. Le homelab prévu
+pour ajuster ces seuils (#42) a été abandonné, remplacé par le mini-labo (#61). Limite : « deux
+derniers labels » se trompe sur les suffixes comme `.co.uk`, sans gêner la détection d'un
+tunnel. La fonction compte sur le tableau qu'on lui donne, sans fenêtre glissante : `scan` lui
+passe la capture entière, le dashboard la période choisie (filtre SQL). Le code de sortie de
+`scan` vaut 1 seulement s'il y a une **alerte** (et non plus dès une requête suspecte), pour
+que les scripts ne subissent pas les faux positifs isolés.
 
 ## 2026-11-24 — Dashboard en lecture seule, sur localhost par défaut
 Le dashboard ouvre la base SQLite en lecture seule (`mode=ro`) : il ne peut pas altérer les
@@ -129,3 +129,13 @@ change pas quelles alertes sont levées. Le capteur est jugé actif si la derni�
 d'une minute, silencieux jusqu'à 5 minutes, inactif au-delà ; sans battement de cœur écrit par la
 capture, un réseau très calme le fait paraître silencieux. Les variations des chiffres clés
 comparent à la période précédente de même durée, et ne s'affichent pas si elle est vide.
+
+## 2026-11-25 — Mini-labo Docker avec iodine à la place du homelab
+
+**Décision** : valider en conditions réelles avec `compose.labo.yaml` (fichier séparé, pas un
+profil : `compose.yaml` exige une interface hôte) : un serveur et un client **iodine** sur un
+réseau Docker `internal`, le capteur partageant l'espace réseau du serveur. iodine vient du
+paquet Debian officiel, version épinglée, sur une image Debian épinglée par empreinte.
+**Justification** : le homelab (#42) n'est plus disponible ; iodine est un vrai outil, empaqueté
+par Debian (pas d'image tierce), et le labo ne dépend d'aucune infrastructure externe. Prix :
+`NET_ADMIN` et `/dev/net/tun` pour l'interface tunnel d'iodine, limités aux deux conteneurs iodine.
