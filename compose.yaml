@@ -50,12 +50,16 @@ services:
       - /models/exfildns.keras
       - --adresse
       - 0.0.0.0
+      # statuts des alertes : seule base écrite par le dashboard, detections.db reste en :ro
+      - --statuts
+      - /etat/statuts.db
     # Publié sur l'hôte en local seulement : le dashboard affiche les noms demandés et les postes
     ports:
       - "127.0.0.1:${EXFILDNS_PORT:-8501}:8501"
     volumes:
       - ./models:/models:ro
       - detections:/data:ro
+      - statuts:/etat
     healthcheck:
       test:
         - CMD
@@ -68,3 +72,4 @@ services:
 
 volumes:
   detections:
+  statuts:
