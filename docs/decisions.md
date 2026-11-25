@@ -158,3 +158,12 @@ cours.
 de 3,8 à 2,9 Go et les scores du modèle sont identiques (écart nul sur 2 000 requêtes). Prédire
 sans TensorFlow (Keras 3, dont le backend NumPy demande jax ; ~1,5 Go de moins) a été mesuré viable mais écarté avant la
 soutenance : plus de code et de dépendances à changer.
+
+## 2026-11-26 — Livraison en v2.1.0, sans v2.0.0 (#45)
+
+`production` passe directement de v1.0.0 à **v2.1.0**. Les milestones v2.0 (détection en direct :
+capture, alertes, dashboard, Docker) et v2.1 (interface SOC) ont été développés à la suite sur
+`main`, sans livraison intermédiaire : quand vient la livraison, `main` contient les deux. Taguer
+`v2.0.0` annoncerait une version sans l'interface SOC alors qu'elle est livrée ; le numéro suit
+donc le contenu réel. Une version **majeure** (2) car la v1 n'était qu'un modèle hors ligne
+(`train`, `evaluate`, `scan`) : la v2 ajoute la capture en direct, le dashboard et le déploiement.
