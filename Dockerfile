@@ -18,16 +18,15 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
-# --- Étape 2 : le paquet exfildns seul, mis à part pour sa propre couche (quelques Ko) ---
+# --- Étape 2 : le paquet exfildns seul, mis à part pour sa propre couche (quelques centaines de Ko) ---
 FROM dependances AS construction
 COPY README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable \
-    && cd /app/.venv \
     && mkdir /projet \
-    && cp -a --parents bin/exfildns lib/python3.12/site-packages/exfildns \
-       lib/python3.12/site-packages/exfildns-*.dist-info /projet/
+    && cp -a --parents .venv/bin/exfildns .venv/lib/python3.12/site-packages/exfildns \
+       .venv/lib/python3.12/site-packages/exfildns-*.dist-info /projet/
 
 # --- Étape 3 : image d'exécution, sans uv ni outils de construction ---
 FROM python:3.12.16-slim-bookworm@sha256:82836454a795d9d75549a9e157fd08dbac6c383292cf89e99f4248a97ce6b2ff
@@ -50,7 +49,7 @@ RUN cp "$(readlink -f /usr/local/bin/python3.12)" /app/.venv/bin/python-capture 
     && mkdir /data /etat \
     && chown exfildns /data /etat
 # Le code d'exfildns en dernier : seule couche refaite quand src/ change
-COPY --from=construction /projet/ /app/.venv/
+COPY --from=construction /projet/.venv/ /app/.venv/
 ENV PATH="/app/.venv/bin:$PATH" \
     HOME=/tmp \
     PYTHONUNBUFFERED=1
