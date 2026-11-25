@@ -457,8 +457,27 @@ def test_cli_dashboard_lance_streamlit(tmp_path, monkeypatch, capsys):
     assert commande[commande.index("--client.toolbarMode") + 1] == "viewer"
     assert env["EXFILDNS_BASE"] == str(tmp_path / "detections.db")
     assert env["EXFILDNS_MODELE"] == str(tmp_path / "models" / "exfildns.keras")
+    assert "EXFILDNS_STATUTS" not in env  # par défaut : à côté de la base
     assert commande[commande.index("--server.maxUploadSize") + 1] == "100"
     assert "localhost:9000" in capsys.readouterr().out
+
+
+def test_cli_dashboard_statuts_explicite(tmp_path, monkeypatch):
+    appels = []
+    monkeypatch.setattr("exfildns.cli.os.execvpe", lambda p, c, env: appels.append(env))
+    monkeypatch.chdir(tmp_path)
+
+    main(["dashboard", "--statuts", "etat/statuts.db"])
+
+    assert appels[0]["EXFILDNS_STATUTS"] == str(tmp_path / "etat" / "statuts.db")
+
+
+def test_app_statuts_par_defaut_a_cote_de_la_base(base_demo, monkeypatch):
+    monkeypatch.delenv("EXFILDNS_STATUTS", raising=False)
+    at = changer_statut(app(base_demo, monkeypatch).run(), "close")
+
+    assert not at.exception
+    assert statuts.lire(base_demo.parent / "statuts.db")["statut"].tolist() == ["close"]
 
 
 def test_cli_dashboard_adresse_explicite(monkeypatch):
