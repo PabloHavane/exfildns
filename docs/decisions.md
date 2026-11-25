@@ -64,3 +64,106 @@ Rater une exfiltration est le pire cas, d'où le rappel. Le taux de faux positif
 détecteur « qui alerte sur tout ». L'accuracy est écartée car le dataset inverse la proportion
 réelle des classes. Seuil 0,5 (défaut de la sigmoïde) : il n'est pas réglé sur le test pour éviter
 une fuite. Détails et chiffres dans `docs/evaluation.md`.
+
+## 2026-11-24 — Notebook Jupyter qui importe le paquet, livré exécuté, hors CI
+Le notebook `notebooks/methodologie.ipynb` appelle les fonctions de `exfildns` au lieu de recopier
+leur code : une seule implémentation des features et du modèle. Il est commité avec ses sorties
+(lisible sans le relancer) et n'est pas exécuté en CI, qui n'a pas le dataset. Jupyter et
+matplotlib sont dans un groupe de dépendances `notebook`, absent de l'application et de la CI.
+
+## 2026-11-24 — Détection en direct : capture séparée, SQLite, Streamlit, Docker
+La capture demande root ou `CAP_NET_RAW` : elle tourne dans un processus à part (`exfildns sniff`)
+qui écrit dans une base SQLite ; le dashboard Streamlit la lit sans privilège. SQLite est dans la
+bibliothèque standard et suffit pour un seul écrivain. Déploiement par Docker compose (deux
+services), relu par l'agent `relecteur-docker`.
+
+## 2026-11-24 — Alertes par domaine parent (≥ 5 requêtes suspectes) et liste blanche Le modèle
+juge chaque requête seule ; un tunnel, lui, envoie beaucoup de requêtes vers un même domaine.
+Une alerte n'est levée que si un domaine parent (deux derniers labels) reçoit au moins 5
+requêtes suspectes : un faux positif isolé (nom long d'un CDN) n'alerte pas. Une liste blanche
+(CDN et cloud connus, complétable par fichier) écarte les services légitimes. Le homelab prévu
+pour ajuster ces seuils (#42) a été abandonné, remplacé par le mini-labo (#61). Limite : « deux
+derniers labels » se trompe sur les suffixes comme `.co.uk`, sans gêner la détection d'un
+tunnel. La fonction compte sur le tableau qu'on lui donne, sans fenêtre glissante : `scan` lui
+passe la capture entière, le dashboard la période choisie (filtre SQL). Le code de sortie de
+`scan` vaut 1 seulement s'il y a une **alerte** (et non plus dès une requête suspecte), pour
+que les scripts ne subissent pas les faux positifs isolés.
+
+## 2026-11-24 — Dashboard en lecture seule, sur localhost par défaut
+Le dashboard ouvre la base SQLite en lecture seule (`mode=ro`) : il ne peut pas altérer les
+détections et tourne sans privilège. Si la capture tourne en root et est arrêtée, il relit la base
+en `immutable` (plus aucun écrivain). Il n'écoute que sur `localhost` par défaut : il affiche les
+noms demandés et les adresses des postes, données sensibles à ne pas exposer sans le vouloir.
+
+## 2026-11-24 — Docker : une image, deux services, privilèges minimaux
+Image multi-étapes construite par uv depuis `uv.lock`, base épinglée par digest, sans données ni
+modèle (montés). Les deux services tournent en utilisateur non root (uid 10001), `cap_drop: ALL`,
+racine en lecture seule. La capture a besoin de `NET_RAW` : la capacité est posée par `setcap`
+sur une **copie dédiée** de l'interpréteur (`python-capture`), utilisée par `sniff` seul ; sur le
+Python commun, elle aurait empêché le dashboard (sans capacité) de démarrer. `no-new-privileges`
+est activé pour le dashboard mais pas pour `sniff`, où il annulerait cette capacité. Le
+dashboard n'est publié que sur `127.0.0.1`. Image lourde (~3,8 Go, dont 1,9 Go de TensorFlow) :
+`tensorflow-cpu` (roue de 274 Mo contre 572 Mo) est possible sous Linux x86_64 avec des marqueurs
+de plateforme, mais changerait la dépendance de l'environnement de développement à deux jours
+de la soutenance : reporté à une issue dédiée, avec l'autre piste (prédire sans TensorFlow,
+Keras 3 en backend NumPy). Les binaires setuid de l'image de base restent présents dans `sniff`
+(sans no-new-privileges) : risque faible, seule NET_RAW est dans l'ensemble limitant et la racine
+est en lecture seule.
+
+## 2026-11-24 — Interface SOC (v2.1) : données affichées et limites
+
+La table `requetes` gagne une colonne `taille` (octets du message DNS, lus dans l'en-tête UDP
+pour rester justes sur un paquet tronqué), ajoutée par une migration additive dans `ouvrir_base` :
+les anciennes lignes valent NULL. Elle sert à l'affichage seulement, pas au modèle. Les noms de
+la base restent en français, comme l'existant. Le `rcode` n'est pas enregistré : la capture ne
+voit que les requêtes, il faudrait capturer et apparier les réponses. Domaine parent = deux
+derniers labels (pas de Public Suffix List). Pas de SHAP : le modèle est un réseau Keras, il
+faudrait une dépendance lourde et charger TensorFlow dans le dashboard.
+
+## 2026-11-24 — Sévérité des alertes et état du capteur (affichage seulement)
+
+La file d'alertes trie par sévérité puis par dernière requête suspecte. Sévérité **haute** si
+l'alerte est nette (score max ≥ 0,9) et fournie (au moins deux fois le minimum de requêtes
+suspectes), **moyenne** si l'une des deux, **basse** sinon : une règle lisible à l'oral, qui ne
+change pas quelles alertes sont levées. Le capteur est jugé actif si la dernière requête a moins
+d'une minute, silencieux jusqu'à 5 minutes, inactif au-delà ; sans battement de cœur écrit par la
+capture, un réseau très calme le fait paraître silencieux. Les variations des chiffres clés
+comparent à la période précédente de même durée, et ne s'affichent pas si elle est vide.
+
+## 2026-11-25 — Mini-labo Docker avec iodine à la place du homelab
+
+**Décision** : valider en conditions réelles avec `compose.labo.yaml` (fichier séparé, pas un
+profil : `compose.yaml` exige une interface hôte) : un serveur et un client **iodine** sur un
+réseau Docker `internal`, le capteur partageant l'espace réseau du serveur. iodine vient du
+paquet Debian officiel, version épinglée, sur une image Debian épinglée par empreinte.
+**Justification** : le homelab (#42) n'est plus disponible ; iodine est un vrai outil, empaqueté
+par Debian (pas d'image tierce), et le labo ne dépend d'aucune infrastructure externe. Prix :
+`NET_ADMIN` et `/dev/net/tun` pour l'interface tunnel d'iodine, limités aux deux conteneurs iodine.
+
+## 2026-11-25 — Statut des alertes dans une base séparée (#78)
+
+Une alerte a un statut (nouvelle, en cours, faux positif, close), accroché au **domaine parent**
+puisque les alertes sont recalculées à chaque affichage. Il vit dans `statuts.db`, écrite par le
+dashboard seul (volume `statuts` sous Docker) : `detections.db` reste en lecture seule pour lui,
+ce qui protège les détections et marche aussi quand `sniff` tourne en root hors Docker (fichier
+de détections appartenant à root). « Faux positif » est un statut, réversible, et non un ajout à
+la liste blanche ; pas d'auteur enregistré (aucune authentification). Une alerte close qui reçoit
+de nouvelles requêtes suspectes redevient nouvelle ; « Alertes ouvertes » compte nouvelles et en
+cours.
+
+## 2026-11-26 — `tensorflow-cpu` sous Linux x86_64 (#58)
+
+`pyproject.toml` installe `tensorflow-cpu` sous Linux x86_64 (marqueurs de plateforme) et
+`tensorflow` ailleurs (macOS, ARM). **Justification** : aucun GPU n'est utilisé ; l'image passe
+de 3,8 à 2,9 Go et les scores du modèle sont identiques (écart nul sur 2 000 requêtes). Prédire
+sans TensorFlow (Keras 3, dont le backend NumPy demande jax ; ~1,5 Go de moins) a été mesuré viable mais écarté avant la
+soutenance : plus de code et de dépendances à changer.
+
+## 2026-11-26 — Livraison en v2.1.0, sans v2.0.0 (#45)
+
+`production` passe directement de v1.0.0 à **v2.1.0**. Les milestones v2.0 (détection en direct :
+capture, alertes, dashboard, Docker) et v2.1 (interface SOC) ont été développés à la suite sur
+`main`, sans livraison intermédiaire : quand vient la livraison, `main` contient les deux. Taguer
+`v2.0.0` annoncerait une version sans l'interface SOC alors qu'elle est livrée ; le numéro suit
+donc le contenu réel. Une version **majeure** (2) car la v1 n'était qu'un modèle hors ligne
+(`train`, `evaluate`, `scan`) : la v2 ajoute la capture en direct, le dashboard et le déploiement.

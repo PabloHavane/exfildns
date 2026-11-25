@@ -1,9 +1,9 @@
 # exfildns — instructions pour les agents Claude
 
 Projet ENSIBS CyberAI : application de machine learning qui détecte les requêtes DNS
-servant à **exfiltrer des données** (DNS tunneling). Deux humains (PabloHavane et elias-utf8),
-chacun avec ses agents Claude. **Les humains n'écrivent pas de code : les agents codent,
-committent, poussent et ouvrent les PR.** Ce fichier est le contrat commun entre les agents.
+servant à **exfiltrer des données** (DNS tunneling). Un humain (PabloHavane) et ses agents
+Claude (elias-utf8 travaille désormais sur un autre projet). **L'humain n'écrit pas de code :
+les agents codent, committent, poussent et ouvrent les PR.** Ce fichier est le contrat commun entre les agents.
 
 ## Principe directeur : KISS
 
@@ -25,7 +25,11 @@ Python 3.12 (fixé par `.python-version`), gestion par **uv**.
   adaptée sur le jeu d'entraînement uniquement), le modèle se sauvegarde en un seul fichier `.keras`.
 - **scikit-learn** uniquement comme boîte à outils : découpage train/test, métriques, modèle de
   référence (régression logistique) pour comparaison.
-- **pandas** pour les tableaux, **scapy** pour lire les PCAP.
+- **pandas** pour les tableaux, **scapy** pour lire les PCAP et capturer en direct.
+- **Jupyter** + **matplotlib** pour le notebook de méthodologie (groupe de dépendances `notebook`,
+  hors application et hors CI).
+- **Streamlit** pour le dashboard, **SQLite** (`sqlite3`, bibliothèque standard) entre la capture
+  et le dashboard, **Docker** (compose) pour le déploiement.
 
 ```bash
 uv sync                         # installer / mettre à jour l'environnement
@@ -34,6 +38,8 @@ uv run pytest                   # tests
 uv run ruff check . --fix       # lint
 uv run ruff format .            # formatage
 uv add <paquet>                 # ajouter une dépendance (met à jour uv.lock, à committer)
+uv sync --group notebook        # ajouter Jupyter et matplotlib
+uv run --group notebook jupyter lab
 ```
 
 La CI (`.github/workflows/ci.yml`) exécute lint + formatage + tests sur chaque PR.
@@ -50,6 +56,11 @@ La CI (`.github/workflows/ci.yml`) exécute lint + formatage + tests sur chaque 
 - Les fichiers vont dans `data/` (ignoré par git). Les modèles entraînés vont dans `models/`
   (ignoré). **Ne jamais committer de données, de PCAP ni de modèle.**
 - Les tests utilisent de petites données synthétiques construites dans les tests, jamais le dataset.
+- **Chaque nouvelle fonctionnalité arrive avec sa batterie de tests** (cas nominal, cas limites,
+  erreurs), y compris le dashboard Streamlit (`streamlit.testing.v1.AppTest`).
+- **La documentation est toujours à jour** : tout changement de comportement visible, de
+  commande, de schéma de base ou de module met à jour `README.md` et `docs/` **dans la même PR**
+  (pas après coup). Le relecteur vérifie que la doc correspond au code.
 
 ## Architecture visée
 
@@ -59,9 +70,18 @@ src/exfildns/
   pcap.py       # lecture d'un PCAP -> requêtes DNS (scapy)
   dataset.py    # PCAP du dataset -> DataFrame étiqueté (capture, qname, label + features)
   model.py      # construction du MLP Keras, entraînement, évaluation, sauvegarde/chargement (.keras)
-  cli.py        # exfildns train | evaluate | scan
+  evaluation.py # métriques, seuil, importance par permutation
+  cli.py        # exfildns train | evaluate | scan | sniff | dashboard
+  sniff.py      # capture DNS en direct -> scores -> base SQLite
+  alertes.py    # agrégation des requêtes suspectes par domaine parent, liste blanche
+  dashboard.py  # application Streamlit (lit la base SQLite, importe un PCAP)
+notebooks/      # methodologie.ipynb : importe exfildns, livré exécuté avec ses sorties
 tests/          # un fichier de test par module
+Dockerfile, compose.yaml   # déploiement : service sniff (NET_RAW, réseau hôte) + dashboard
 ```
+
+Le notebook **importe** le paquet au lieu de recopier du code. La capture en direct et l'analyse
+d'un fichier PCAP partagent le même décodage de paquet.
 
 Règle clé : **la même fonction de calcul des features sert à l'entraînement et à l'inférence**,
 sinon le modèle verra en production des données différentes de celles d'entraînement.
@@ -95,13 +115,15 @@ Fixer les graines aléatoires (`keras.utils.set_random_seed`) pour des résultat
   Conventional Commits. Les autres méthodes sont refusées par GitHub sur `main`.
 - **Branche supprimée après chaque PR** (automatique sur GitHub + `--delete-branch` en local).
 - Pas de relecture humaine obligatoire : l'agent `relecteur` sert de relecteur avant le merge.
+  Toute PR qui touche au Dockerfile, au compose ou à la CI Docker passe **aussi** par l'agent
+  `relecteur-docker`.
 
 Pour traiter une issue de bout en bout, utilise le skill **`traiter-issue`**.
 
-## Coordination entre les deux équipes d'agents
+## Coordination entre agents
 
 - Avant de commencer une issue : vérifier qu'elle n'est **assignée à personne**, puis se l'assigner
-  (`gh issue edit <n°> --add-assignee @me`). Une issue assignée à l'autre n'est pas à toi.
+  (`gh issue edit <n°> --add-assignee @me`). Une issue assignée à quelqu'un d'autre n'est pas à toi.
 - Toujours partir d'un `main` à jour (`git pull --rebase`) et garder les PR petites pour éviter
   les conflits.
 - Toute décision structurante (choix de features, de modèle, de métrique) est consignée dans

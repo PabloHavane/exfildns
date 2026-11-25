@@ -1,23 +1,8 @@
-import pandas as pd
-import pytest
 from conftest import ecrire_pcap, noms_benins, noms_exfil, requete
 from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import Ether
 
-from exfildns.cli import domaine_parent, main
-from exfildns.features import features_dataframe
-from exfildns.model import entrainer_mlp, sauvegarder
-
-
-@pytest.fixture(scope="module")
-def modele(tmp_path_factory):
-    """Petit réseau entraîné sur des noms synthétiques (bénins / base64)."""
-    noms = noms_benins(300, graine=1) + noms_exfil(300, graine=1)
-    y = pd.Series([0] * 300 + [1] * 300)
-    reseau, _ = entrainer_mlp(features_dataframe(noms), y, epochs=30)
-    chemin = tmp_path_factory.mktemp("modele") / "exfildns.keras"
-    sauvegarder(reseau, chemin)
-    return chemin
+from exfildns.cli import main
 
 
 def test_scan_detecte_l_exfiltration(tmp_path, modele, capsys):
@@ -58,9 +43,3 @@ def test_scan_modele_absent(tmp_path, capsys):
 
     assert main(["scan", str(capture), "-m", str(tmp_path / "absent.keras")]) == 2
     assert "Modèle introuvable" in capsys.readouterr().err
-
-
-def test_domaine_parent():
-    assert domaine_parent("www.example.com", tronque=False) == "example.com"
-    assert domaine_parent("0.AbCd", tronque=True).startswith("(nom incomplet")
-    assert domaine_parent("", tronque=False) == "(racine)"

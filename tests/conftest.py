@@ -8,7 +8,8 @@ from scapy.layers.inet import IP, UDP
 from scapy.layers.l2 import Ether
 from scapy.utils import RawPcapWriter
 
-from exfildns.features import FEATURES
+from exfildns.features import FEATURES, features_dataframe
+from exfildns.model import entrainer_mlp, sauvegarder
 
 NOM_EXFIL = "0.J4HgHlgzQH6j0WZF8m3DQx3jGodWnpcKYKFAeUM.attaquant.example"
 
@@ -76,3 +77,14 @@ def dossier_donnees(tmp_path):
         paquets = [requete(q) for q in noms_benins(200, graine + 20)]
         ecrire_pcap(dossier / "Benign" / f"{nom}.pcap", paquets)
     return dossier
+
+
+@pytest.fixture(scope="session")
+def modele(tmp_path_factory):
+    """Chemin d'un petit réseau entraîné sur des noms synthétiques (bénins / base64)."""
+    noms = noms_benins(300, graine=1) + noms_exfil(300, graine=1)
+    y = pd.Series([0] * 300 + [1] * 300)
+    reseau, _ = entrainer_mlp(features_dataframe(noms), y, epochs=30)
+    chemin = tmp_path_factory.mktemp("modele") / "exfildns.keras"
+    sauvegarder(reseau, chemin)
+    return chemin
