@@ -208,7 +208,7 @@ Il réentraîne le réseau et réécrit `models/exfildns.keras`, le même modèl
 ## Développement
 
 ```bash
-uv run pytest                                      # ~15 s
+uv run pytest                                      # ~40 s
 uv run ruff check . && uv run ruff format --check .
 ```
 
