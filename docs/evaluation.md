@@ -140,8 +140,9 @@ noms ordinaires : les manquer est attendu.
 le plus dense (*Base128*, octets non ASCII), très différent d'un nom légitime. À travers un
 vrai résolveur récursif, il peut se replier, selon ce que le résolveur laisse passer, sur du
 base64 ou du **base32 en minuscules** ; ce dernier, le modèle ne le détecte pas (0 % lors d'un
-essai sur noms générés). iodine 0.7.0 ne permet pas d'imposer l'encodage montant : ce cas reste
-à valider (généralisation du modèle, #62).
+essai sur noms générés). iodine 0.7.0 ne permet pas d'imposer l'encodage montant : ce cas n'est
+pas testé. Le groupe a choisi de ne pas étendre le modèle à d'autres encodages, pour le garder
+simple : c'est une limite assumée du projet.
 
 ## Interprétation honnête : le dataset est trop facile
 
