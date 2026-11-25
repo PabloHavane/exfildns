@@ -11,6 +11,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # statut -> libellé affiché
@@ -73,7 +74,11 @@ def appliquer(resume: pd.DataFrame, statuts: pd.DataFrame) -> pd.DataFrame:
     rouverte = (statut == "close") & (resume["fin"].astype(float) > clos_le)
     return resume.assign(
         statut=statut.mask(rouverte, "nouvelle"),
-        commentaire=resume["domaine"].map(connus["commentaire"]),
+        # None plutôt que NaN : un NaN s'afficherait « nan » dans le champ commentaire
+        commentaire=resume["domaine"]
+        .map(connus["commentaire"])
+        .astype(object)
+        .replace({np.nan: None}),
     )
 
 

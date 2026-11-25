@@ -557,9 +557,12 @@ def afficher_resultats(
     """
     if "erreur_statut" in st.session_state:
         st.error(st.session_state.pop("erreur_statut"))
-    connus = (
-        statuts.lire(chemin_statuts) if chemin_statuts else pd.DataFrame(columns=statuts.COLONNES)
-    )
+    connus = pd.DataFrame(columns=statuts.COLONNES)
+    if chemin_statuts is not None:
+        try:
+            connus = statuts.lire(chemin_statuts)
+        except (sqlite3.Error, OSError, pd.errors.DatabaseError) as erreur:
+            st.warning(f"Statuts d'alertes illisibles ({chemin_statuts}) : {erreur}")
 
     def resume_de(lues: pd.DataFrame) -> pd.DataFrame:
         return statuts.appliquer(alertes(lues, seuil, min_requetes), connus)

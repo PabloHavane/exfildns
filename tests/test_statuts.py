@@ -69,7 +69,7 @@ def test_appliquer_sans_statut_alerte_nouvelle(tmp_path):
     resultat = appliquer(resume(("a.example", 50.0)), lire(tmp_path / "statuts.db"))
 
     assert resultat["statut"].tolist() == ["nouvelle"]
-    assert resultat["commentaire"].isna().all()
+    assert resultat["commentaire"].tolist() == [None]  # pas NaN (affiché « nan »)
 
 
 def test_appliquer_statuts_enregistres(tmp_path):

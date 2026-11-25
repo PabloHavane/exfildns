@@ -1022,11 +1022,12 @@ def test_app_supervision_et_capture_en_meme_temps(base_demo, tmp_path, modele, m
 # --- statut des alertes (#78) ---
 
 
-def changer_statut(at, statut, note=""):
+def changer_statut(at, statut, note=None):
     """Choisit `statut` dans le formulaire de la première alerte et l'enregistre."""
     onglet = at.tabs[0]
     onglet.selectbox(key="statut_attaquant.example_choix").select(statut)
-    onglet.text_input(key="statut_attaquant.example_note").input(note)
+    if note is not None:  # sinon : champ laissé tel quel
+        onglet.text_input(key="statut_attaquant.example_note").input(note)
     next(b for b in onglet.button if b.label == "Enregistrer").click()
     return at.run()
 
@@ -1091,3 +1092,20 @@ def test_app_statut_base_non_inscriptible(base_demo, tmp_path, monkeypatch):
     assert not at.exception
     assert "Statut non enregistré" in at.error[0].value
     assert alertes_ouvertes(at) == "1"
+
+
+def test_app_statut_sans_commentaire(base_demo, monkeypatch):
+    at = changer_statut(app(base_demo, monkeypatch).run(), "en_cours")
+
+    assert not at.exception
+    assert pd.isna(statuts.lire(base_demo.parent / "statuts.db").loc[0, "commentaire"])
+    assert not at.tabs[0].text  # pas de « Note : nan »
+
+
+def test_app_statuts_illisibles(base_demo, monkeypatch):
+    (base_demo.parent / "statuts.db").write_text("pas une base SQLite")
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert "Statuts d'alertes illisibles" in at.warning[0].value
+    assert alertes_ouvertes(at) == "1"  # la supervision reste affichée
