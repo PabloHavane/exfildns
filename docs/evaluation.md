@@ -119,6 +119,29 @@ Phrase à retenir pour l'oral : *le réseau signale une requête quand son nom e
 (entropie élevée), contient des majuscules et un label très long, c'est-à-dire quand il ressemble
 à des données encodées en base64 plutôt qu'à un nom de domaine choisi par un humain.*
 
+## Validation en conditions réelles : mini-labo iodine
+
+**Protocole** (25/11/2026) : `docker compose -f compose.labo.yaml up --build` (voir
+[deploiement.md](deploiement.md#mini-labo--une-vraie-exfiltration-dns-sur-un-réseau-isolé)).
+Le client iodine 0.7.0 envoie des blocs de 200 Ko aléatoires vers son serveur sur un réseau
+Docker isolé ; `exfildns sniff` (modèle MLP du dépôt, seuil 0,5) enregistre chaque requête reçue
+par le serveur. Comptage dans la base après ~2 minutes :
+
+| Requêtes vers `tunnel.labo` | Nombre | Détectées (score ≥ 0,5) | Manquées |
+|---|---|---|---|
+| Données (nom > 40 caractères, ~238 en moyenne) | 1 862 | **1 833 (98,4 %)** | 29 |
+| Contrôle (ouverture du tunnel, attente : `pabyaoly.tunnel.labo`…) | 21 | 0 | 21 |
+
+Le domaine `tunnel.labo` dépasse largement les 5 requêtes suspectes : l'alerte apparaît dans le
+dashboard. Les requêtes de contrôle, courtes, ne transportent presque rien et ressemblent à des
+noms ordinaires : les manquer est attendu.
+
+**Limite importante** : sans résolveur entre le client et le serveur, iodine choisit l'encodage
+le plus dense (*Base128*, octets non ASCII), très différent d'un nom légitime. À travers un vrai
+résolveur récursif, il peut se replier, selon ce que le résolveur laisse passer, sur du base64 ou du **base32 en minuscules** ; ce dernier, le modèle ne le
+détecte pas (0 % lors d’un essai sur noms générés). iodine 0.7.0 ne permet pas d'imposer
+l'encodage montant : ce cas reste à valider (généralisation du modèle, #62).
+
 ## Interprétation honnête : le dataset est trop facile
 
 - **Une seule feature suffit presque** : la régression logistique sur une feature unique atteint

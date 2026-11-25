@@ -137,8 +137,8 @@ sudo setcap cap_net_raw+ep .venv/bin/python-capture
    (période « 15 dernières minutes »). Navigation normale : capteur « actif » dans le bandeau,
    requêtes en bleu, file d'alertes vide.
 2. **Exfiltrer** : depuis un poste dont le trafic DNS passe par l'interface surveillée, lancer
-   l'outil d'exfiltration vers le domaine de l'attaquant. *Outil et protocole à compléter avec
-   l'issue #42 (homelab) ; d'ici là, la boucle `dig` de la section 3 ou le plan B ci-dessous.*
+   l'outil d'exfiltration vers le domaine de l'attaquant : le mini-labo ci-dessous le fait sans
+   réseau externe, sinon la boucle `dig` de la section 3 ou le plan B.
 3. **Détecter** : en quelques secondes, les requêtes apparaissent en rouge dans le graphique
    avec un marqueur d'alerte ; la file d'alertes nomme le domaine de l'attaquant, sa sévérité
    et le poste à l'origine (aussi en tête du panneau « Top postes »).
@@ -149,6 +149,31 @@ sudo setcap cap_net_raw+ep .venv/bin/python-capture
    hexadécimal ou ASCII échappé). Exporter la sélection en CSV ou JSON.
 5. **Expliquer** : régler le seuil et le nombre de requêtes par alerte dans la barre latérale
    pour montrer leur effet ; renvoyer au notebook pour la méthode.
+
+### Mini-labo : une vraie exfiltration DNS sur un réseau isolé
+
+`compose.labo.yaml` monte un labo complet, sans aucune infrastructure externe :
+
+| Service | Rôle |
+|---|---|
+| `attaquant` | serveur **iodine** (`iodined`) faisant autorité sur le domaine fictif `tunnel.labo`, reçoit le fichier par le tunnel |
+| `victime` | client iodine (`-r` : DNS uniquement) qui envoie 200 Ko aléatoires par le tunnel, toutes les 30 s |
+| `sniff` | `exfildns sniff` dans l'espace réseau de l'attaquant : il voit chaque requête DNS reçue |
+| `dashboard` | dashboard du labo sur <http://localhost:8502> (8502 : peut tourner à côté du déploiement principal) |
+
+```bash
+docker compose -f compose.labo.yaml up --build -d   # prérequis : models/exfildns.keras, /dev/net/tun
+docker compose -f compose.labo.yaml logs -f victime # « Connection setup complete » : le tunnel est ouvert
+docker compose -f compose.labo.yaml down -v         # tout arrêter et vider la base du labo
+```
+
+- **Isolement** : le réseau `labo` est `internal` (aucune route vers Internet) ; seul le
+  dashboard, hors de ce réseau, publie un port, sur `127.0.0.1`.
+- **Image de l'outil** : `labo/Dockerfile`, Debian épinglée par empreinte, paquets officiels
+  `iodine` et `netcat-openbsd` en version fixée (pas d'image tierce).
+- **Privilèges** : iodine crée une interface tunnel, d'où `NET_ADMIN` et `/dev/net/tun` pour
+  ses deux conteneurs (toutes les autres capacités retirées) ; le capteur garde `NET_RAW` seul.
+- Résultats mesurés (détectées / manquées) : [evaluation.md](evaluation.md#validation-en-conditions-réelles--mini-labo-iodine).
 
 ### Plan B : sans réseau
 
@@ -177,8 +202,9 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
 
 - **Modèle entraîné sur un seul outil** (DNSExfiltrator, données en base64) et sur du trafic
   bénin issu du top Alexa : un outil qui encode en minuscules (hexadécimal, base32) ou des noms
-  légitimes longs et aléatoires (CDN, cloud) peuvent dégrader la détection. La validation en
-  conditions réelles est l'objet de l'issue #42 ; la liste blanche et le regroupement en
+  légitimes longs et aléatoires (CDN, cloud) peuvent dégrader la détection. Dans le mini-labo,
+  iodine est détecté (98 % des requêtes de données) car, sans résolveur intermédiaire, il
+  encode en 8 bits ; via un vrai résolveur il peut passer en base32 minuscule (non testé). La liste blanche et le regroupement en
   alertes limitent les faux positifs.
 - **Analyse requête par requête** : le volume et le rythme des requêtes ne servent qu'à
   regrouper les alertes, pas à détecter (pas de features *stateful*).
