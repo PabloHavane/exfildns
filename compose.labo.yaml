@@ -46,7 +46,7 @@ services:
   # Capteur exfildns dans l'espace réseau de l'attaquant : il voit chaque requête DNS reçue
   sniff:
     build: .
-    image: exfildns:local
+    image: exfildns-labo:local
     user: "10001"
     read_only: true
     tmpfs: [/tmp]
@@ -63,7 +63,7 @@ services:
       - detections:/data
 
   dashboard:
-    image: exfildns:local
+    image: exfildns-labo:local
     depends_on: [sniff]
     user: "10001"
     read_only: true
