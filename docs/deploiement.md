@@ -27,7 +27,7 @@ flowchart LR
 | Composant | Rôle | Privilèges |
 |---|---|---|
 | `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
-| `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` | — |
+| `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` ; avec `--retention N`, `sniff` supprime au démarrage puis toutes les heures les requêtes de plus de N jours | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
 | `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle | — |
 
@@ -85,6 +85,7 @@ Variables de `.env` :
 | Variable | Rôle | Défaut |
 |---|---|---|
 | `EXFILDNS_INTERFACE` | Interface à surveiller (obligatoire) | — |
+| `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `30` |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
 
