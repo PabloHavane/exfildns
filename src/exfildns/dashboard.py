@@ -2,8 +2,9 @@
 
 Lancement : `exfildns dashboard` (ou `streamlit run src/exfildns/dashboard.py`).
 La base à lire est donnée par la variable d'environnement `EXFILDNS_BASE`, le modèle utilisé
-pour analyser une capture importée par `EXFILDNS_MODELE`, la base des statuts d'alertes (la seule
-où le dashboard écrit) par `EXFILDNS_STATUTS` (par défaut `statuts.db` à côté de la base).
+pour analyser une capture importée par `EXFILDNS_MODELE`, la base des statuts d'alertes et de la
+liste blanche (la seule où le dashboard écrit) par `EXFILDNS_STATUTS` (par défaut `statuts.db` à
+côté de la base).
 
 Les fonctions de préparation des données sont pures et testées sans navigateur ; l'interface
 n'est construite que lorsque Streamlit exécute ce fichier (`page()`, tout en bas).
@@ -15,13 +16,14 @@ import os
 import sqlite3
 import time
 import zlib
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-from exfildns import SEUIL, __version__, detail, statuts, synthese
+from exfildns import SEUIL, __version__, detail, liste_blanche, statuts, synthese
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
 
 BASE_PAR_DEFAUT = "detections.db"
@@ -548,12 +550,14 @@ def afficher_resultats(
     precedentes: pd.DataFrame | None = None,
     onglet: str = "direct",
     chemin_statuts: str | None = None,
+    liste: Sequence[str] = LISTE_BLANCHE,
 ) -> None:
     """Chiffres clés, timeline, file d'alertes, panneaux « top » et requêtes suspectes récentes.
 
     `precedentes` : requêtes de la période précédente, pour afficher les variations (aucune
     si elle est vide). `onglet` préfixe la clé des widgets (`direct` ou `capture`).
     `chemin_statuts` : base des statuts d'alertes ; sans elle, toutes les alertes sont nouvelles.
+    `liste` : domaines jamais signalés (liste blanche complète).
     """
     if "erreur_statut" in st.session_state:
         st.error(st.session_state.pop("erreur_statut"))
@@ -565,7 +569,7 @@ def afficher_resultats(
             st.warning(f"Statuts d'alertes illisibles ({chemin_statuts}) : {erreur}")
 
     def resume_de(lues: pd.DataFrame) -> pd.DataFrame:
-        return statuts.appliquer(alertes(lues, seuil, min_requetes), connus)
+        return statuts.appliquer(alertes(lues, seuil, min_requetes, liste), connus)
 
     resume = resume_de(requetes)
     suspectes = requetes[requetes["score"] >= seuil]
@@ -587,7 +591,7 @@ def afficher_resultats(
         graphique = graphique_activite(
             activite_dns(requetes, seuil, minutes),
             minutes,
-            instants_alertes(requetes, seuil, min_requetes),
+            instants_alertes(requetes, seuil, min_requetes, liste),
         )
         st.altair_chart(graphique, width="stretch")
     with droite:
@@ -607,7 +611,13 @@ def afficher_resultats(
 
 
 def supervision(
-    st, base: str, seuil: float, min_requetes: int, periode: str, chemin_statuts: str
+    st,
+    base: str,
+    seuil: float,
+    min_requetes: int,
+    periode: str,
+    chemin_statuts: str,
+    liste: Sequence[str] = LISTE_BLANCHE,
 ) -> None:
     """Onglet de supervision en direct : requêtes de la base écrite par `exfildns sniff`."""
     if not Path(base).exists():
@@ -619,7 +629,7 @@ def supervision(
     duree = PERIODES[periode]
     if duree is None:  # toute la base : pas de période précédente
         afficher_resultats(
-            st, lire_requetes(base), seuil, min_requetes, chemin_statuts=chemin_statuts
+            st, lire_requetes(base), seuil, min_requetes, chemin_statuts=chemin_statuts, liste=liste
         )
         return
     # une seule lecture pour la période et la précédente (variations des chiffres clés)
@@ -632,6 +642,7 @@ def supervision(
         min_requetes,
         precedentes=lues[lues["timestamp"] < debut],
         chemin_statuts=chemin_statuts,
+        liste=liste,
     )
 
 
@@ -858,7 +869,9 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
     afficher_detail(st, vue.iloc[lignes[0]], tableau)
 
 
-def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) -> None:
+def capture_importee(
+    st, chemin_modele: str, seuil: float, min_requetes: int, liste: Sequence[str] = LISTE_BLANCHE
+) -> None:
     """Onglet d'analyse d'un fichier de capture déposé par l'utilisateur."""
     from scapy.error import Scapy_Exception
 
@@ -879,7 +892,57 @@ def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) ->
         st.error(f"{fichier.name} n'est pas une capture réseau lisible (pcap ou pcapng).")
         return
     st.caption(f"Capture : {fichier.name}.")
-    afficher_resultats(st, requetes, seuil, min_requetes, onglet="capture")
+    afficher_resultats(st, requetes, seuil, min_requetes, onglet="capture", liste=liste)
+
+
+def panneau_liste_blanche(st, chemin: str) -> list[str]:
+    """Barre latérale : ajout / retrait de domaines jamais signalés ; renvoie la liste complète.
+
+    Les domaines ajoutés sont écrits dans la base des statuts (`chemin`) ; la liste par défaut
+    (CDN) est toujours appliquée et n'est pas modifiable ici.
+    """
+
+    def ajouter() -> None:
+        try:
+            liste_blanche.ajouter(chemin, st.session_state["liste_blanche_nouveau"])
+            st.session_state["liste_blanche_nouveau"] = ""  # vidé seulement si ajouté
+        except ValueError as erreur:
+            st.session_state["erreur_liste_blanche"] = str(erreur)
+        except (sqlite3.Error, OSError) as erreur:
+            st.session_state["erreur_liste_blanche"] = (
+                f"Domaine non enregistré ({chemin}) : {erreur}"
+            )
+
+    def retirer(domaine: str) -> None:
+        try:
+            liste_blanche.retirer(chemin, domaine)
+        except (sqlite3.Error, OSError) as erreur:
+            st.session_state["erreur_liste_blanche"] = f"Domaine non retiré ({chemin}) : {erreur}"
+
+    try:
+        ajoutes = liste_blanche.lire(chemin)
+    except (sqlite3.Error, OSError) as erreur:
+        st.warning(f"Liste blanche illisible ({chemin}) : {erreur}")
+        ajoutes = []
+    with st.expander(f"Liste blanche ({len(LISTE_BLANCHE) + len(ajoutes)} domaines)"):
+        with st.form("liste_blanche", border=False):
+            st.text_input(
+                "Domaine à ne jamais signaler",
+                placeholder="exemple.com",
+                key="liste_blanche_nouveau",
+                help="Le domaine et tous ses sous-domaines ne lèvent plus d'alerte.",
+            )
+            st.form_submit_button("Ajouter", on_click=ajouter)
+        if "erreur_liste_blanche" in st.session_state:
+            st.error(st.session_state.pop("erreur_liste_blanche"))
+        for domaine in ajoutes:
+            nom, bouton = st.columns([3, 1], vertical_alignment="center")
+            nom.text(domaine)
+            bouton.button(
+                "Retirer", key=f"liste_blanche_retirer_{domaine}", on_click=retirer, args=(domaine,)
+            )
+        st.caption("Toujours appliqués (CDN) : " + ", ".join(LISTE_BLANCHE))
+    return [*LISTE_BLANCHE, *ajoutes]
 
 
 def page() -> None:
@@ -898,6 +961,7 @@ def page() -> None:
         )
         periode = st.selectbox("Période", list(PERIODES), index=2, key="periode")
         auto = st.toggle(f"Rafraîchir toutes les {RAFRAICHISSEMENT} s", True, key="auto")
+        liste = panneau_liste_blanche(st, chemin_statuts)
         st.caption(f"Base : `{base}`")
 
     rafraichissement = RAFRAICHISSEMENT if auto else None
@@ -913,14 +977,14 @@ def page() -> None:
 
     @st.fragment(run_every=rafraichissement)
     def vue_directe() -> None:
-        supervision(st, base, seuil, int(min_requetes), periode, chemin_statuts)
+        supervision(st, base, seuil, int(min_requetes), periode, chemin_statuts, liste)
 
     with direct:
         vue_directe()
     with onglet_requetes:
         vue_requetes(st, base, seuil, periode)
     with importee:
-        capture_importee(st, chemin_modele, seuil, int(min_requetes))
+        capture_importee(st, chemin_modele, seuil, int(min_requetes), liste)
 
 
 if __name__ == "__main__":
