@@ -11,7 +11,16 @@ from scapy.layers.l2 import Ether
 
 from exfildns.cli import main
 from exfildns.model import charger
-from exfildns.sniff import FILTRE_BPF, enregistrer, lots_reseau, noter, ouvrir_base, surveiller
+from exfildns.sniff import (
+    FILTRE_BPF,
+    PERIODE_PURGE,
+    enregistrer,
+    lots_reseau,
+    noter,
+    ouvrir_base,
+    purger,
+    surveiller,
+)
 
 
 def recu(paquet, instant=1000.0):
@@ -205,6 +214,98 @@ def test_surveiller_s_arrete_proprement_sur_ctrl_c(tmp_path, reseau):
     assert len(lignes(base)) == 2
 
 
+# --- rétention ---
+
+JOUR = 86400
+
+
+def base_datee(tmp_path, reseau, instants):
+    """Base contenant une requête bénigne par instant donné."""
+    connexion = ouvrir_base(tmp_path / "d.db")
+    paquets = [recu(requete(f"r{i}.fr"), instant=t) for i, t in enumerate(instants)]
+    enregistrer(connexion, noter(reseau, paquets))
+    return connexion
+
+
+def instants_restants(connexion):
+    return sorted(t for (t,) in connexion.execute("SELECT timestamp FROM requetes"))
+
+
+def test_purger_supprime_seulement_les_requetes_trop_anciennes(tmp_path, reseau):
+    maintenant = 100 * JOUR
+    connexion = base_datee(tmp_path, reseau, [maintenant - 40 * JOUR, maintenant - 10 * JOUR])
+
+    supprimees = purger(connexion, 30, maintenant)
+
+    assert supprimees == 1
+    assert instants_restants(connexion) == [maintenant - 10 * JOUR]
+
+
+def test_purger_limite_exacte_conservee(tmp_path, reseau):
+    maintenant = 100 * JOUR
+    connexion = base_datee(tmp_path, reseau, [maintenant - 30 * JOUR])
+
+    assert purger(connexion, 30, maintenant) == 0
+
+
+def test_purger_base_vide(tmp_path):
+    assert purger(ouvrir_base(tmp_path / "d.db"), 30, 100 * JOUR) == 0
+
+
+def test_purger_fraction_de_jour(tmp_path, reseau):
+    maintenant = 100 * JOUR
+    connexion = base_datee(tmp_path, reseau, [maintenant - 3600 * 13, maintenant - 3600 * 11])
+
+    assert purger(connexion, 0.5, maintenant) == 1  # 12 h
+
+
+def test_surveiller_purge_au_demarrage_puis_periodiquement(tmp_path, reseau):
+    maintenant = [100 * JOUR]
+    connexion = base_datee(tmp_path, reseau, [maintenant[0] - 40 * JOUR])
+
+    def lots():
+        yield []  # purge au démarrage
+        assert instants_restants(connexion) == []
+        enregistrer(connexion, noter(reseau, [recu(requete("x.fr"), instant=maintenant[0])]))
+        maintenant[0] += 31 * JOUR
+        assert PERIODE_PURGE < 31 * JOUR
+        yield []  # période écoulée : nouvelle purge
+
+    surveiller(lots(), reseau, connexion, 0.5, retention_jours=30, horloge=lambda: maintenant[0])
+
+    assert instants_restants(connexion) == []
+
+
+def test_surveiller_ne_purge_pas_avant_la_periode(tmp_path, reseau):
+    maintenant = [100 * JOUR]
+    connexion = base_datee(tmp_path, reseau, [])
+
+    def lots():
+        yield []
+        enregistrer(connexion, noter(reseau, [recu(requete("x.fr"), instant=maintenant[0])]))
+        maintenant[0] += PERIODE_PURGE - 1  # la requête devient trop vieille, période non écoulée
+        yield []
+
+    surveiller(
+        lots(),
+        reseau,
+        connexion,
+        0.5,
+        retention_jours=PERIODE_PURGE / 2 / JOUR,
+        horloge=lambda: maintenant[0],
+    )
+
+    assert len(instants_restants(connexion)) == 1
+
+
+def test_surveiller_sans_retention_garde_tout(tmp_path, reseau):
+    connexion = base_datee(tmp_path, reseau, [1.0])
+
+    surveiller([[]], reseau, connexion, 0.5, horloge=lambda: 100 * JOUR)
+
+    assert instants_restants(connexion) == [1.0]
+
+
 # --- commande exfildns sniff (capture remplacée par des lots synthétiques) ---
 
 
@@ -227,6 +328,32 @@ def test_cli_sniff(tmp_path, modele, monkeypatch, capsys):
     assert "10.6.6.6" in sortie
     assert "2 requêtes analysées, 1 suspectes" in sortie
     assert len(lignes(base)) == 2
+
+
+def test_cli_sniff_retention(tmp_path, modele, monkeypatch):
+    base = tmp_path / "detections.db"
+    retentions = []
+
+    def faux_surveiller(lots, modele, connexion, seuil, retention_jours=None):
+        retentions.append(retention_jours)
+        return 0, 0
+
+    monkeypatch.setattr("exfildns.cli.lots_reseau", lambda interface: iter([]))
+    monkeypatch.setattr("exfildns.cli.surveiller", faux_surveiller)
+
+    main(["sniff", "-m", str(modele), "--base", str(base), "--retention", "30"])
+    main(["sniff", "-m", str(modele), "--base", str(base)])
+
+    assert retentions == [30.0, None]
+
+
+@pytest.mark.parametrize("valeur", ["0", "-3", "abc", "nan"])
+def test_cli_sniff_retention_invalide(tmp_path, modele, valeur, capsys):
+    with pytest.raises(SystemExit) as sortie:
+        main(["sniff", "-m", str(modele), "--retention", valeur])
+
+    assert sortie.value.code == 2
+    assert "nombre de jours positif" in capsys.readouterr().err
 
 
 def test_cli_sniff_sans_droits(tmp_path, modele, monkeypatch, capsys):
