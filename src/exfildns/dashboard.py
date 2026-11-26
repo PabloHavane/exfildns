@@ -110,13 +110,18 @@ def derniere_requete(base: str | Path) -> float | None:
     return None if pd.isna(resultat.loc[0, "t"]) else float(resultat.loc[0, "t"])
 
 
+ERREURS_LECTURE_SEULE = ("readonly", "unable to open database file")
+
+
 def _lecture_seule(base: str | Path, sql: str, params: tuple) -> pd.DataFrame:
     """Exécute `sql` sur la base ouverte en lecture seule (voir `lire_requetes`)."""
     uri = f"{Path(base).resolve().as_uri()}?mode=ro"
     try:
         return _lire(uri, sql, params)
     except pd.errors.DatabaseError as erreur:
-        if "readonly" not in str(erreur):
+        # « readonly » : fichiers non modifiables (sniff lancé en root) ; « unable to open » :
+        # système de fichiers en lecture seule (volume Docker :ro), -shm impossible à créer
+        if not any(cause in str(erreur) for cause in ERREURS_LECTURE_SEULE):
             raise
         return _lire(uri + "&immutable=1", sql, params)
 
