@@ -121,7 +121,8 @@ Capture arrêtée : 214 requêtes analysées, 1 suspectes.
 Chaque requête DNS vue sur l'interface est notée par le même modèle que `scan`, puis
 enregistrée avec son score dans la base SQLite `--base` (lue par le dashboard). Les requêtes
 suspectes s'affichent au fil de l'eau. La capture demande **root** ou la capacité
-**`CAP_NET_RAW`** ; sans `-i`, scapy choisit l'interface de la route par défaut.
+**`CAP_NET_RAW`** ; sans `-i` (ou avec `-i auto`), l'interface de la route par défaut est
+choisie et son nom s'affiche au démarrage.
 Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
 
 **Sans port miroir** : `exfildns sniff --journal /var/log/unbound/unbound.log` suit le journal
