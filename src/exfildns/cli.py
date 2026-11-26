@@ -106,6 +106,17 @@ def commande_scan(args) -> int:
     return 1 if len(resume) else 0
 
 
+def jours_positifs(texte: str) -> float:
+    """Valide l'option --retention : un nombre de jours strictement positif."""
+    try:
+        jours = float(texte)
+    except ValueError:
+        jours = 0.0
+    if not jours > 0:  # rejette aussi NaN
+        raise argparse.ArgumentTypeError(f"nombre de jours positif attendu : {texte!r}")
+    return jours
+
+
 def commande_sniff(args) -> int:
     if not Path(args.modele).exists():
         print(
@@ -132,7 +143,9 @@ def commande_sniff(args) -> int:
     print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.", flush=True)
     connexion = ouvrir_base(args.base)
     try:
-        analysees, suspectes = surveiller(lots, modele, connexion, args.seuil)
+        analysees, suspectes = surveiller(
+            lots, modele, connexion, args.seuil, retention_jours=args.retention
+        )
     finally:
         connexion.close()
     print(f"\nCapture arrêtée : {analysees} requêtes analysées, {suspectes} suspectes.")
@@ -224,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     sniff.add_argument("--seuil", type=float, default=SEUIL, help="seuil d'affichage")
     sniff.add_argument(
         "--base", default=BASE_PAR_DEFAUT, help="base SQLite où enregistrer les requêtes"
+    )
+    sniff.add_argument(
+        "--retention",
+        type=jours_positifs,
+        metavar="JOURS",
+        help="supprime les requêtes plus anciennes que JOURS jours (défaut : tout garder)",
     )
     sniff.set_defaults(fonction=commande_sniff)
 
