@@ -143,6 +143,14 @@ def surveiller(
     return analysees, suspectes
 
 
+def choisir_interface(interface: str | None) -> str:
+    """Nom de l'interface à écouter : celle donnée, ou avec `None` / `auto` celle de la route
+    par défaut (choisie par scapy), par laquelle sort le trafic DNS du poste."""
+    if interface in (None, "", "auto"):
+        return str(conf.iface)
+    return interface
+
+
 def lots_reseau(interface: str | None = None, duree_lot: float = 1.0) -> Iterator[list]:
     """Paquets DNS capturés sur `interface` (par défaut celle de scapy), par lots de `duree_lot` s.
 

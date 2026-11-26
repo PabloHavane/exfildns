@@ -1,5 +1,5 @@
 # Déploiement d'exfildns : capture DNS en direct + dashboard de supervision.
-#   cp .env.example .env    # puis choisir l'interface à surveiller
+#   cp .env.example .env    # réglages facultatifs (interface, rétention, mot de passe…)
 #   docker compose up -d --build
 #   -> dashboard sur http://localhost:8501
 # Prérequis : le modèle entraîné dans ./models/exfildns.keras (exfildns train ou le notebook).
@@ -29,7 +29,8 @@ services:
     command:
       - sniff
       - --interface
-      - ${EXFILDNS_INTERFACE:?définir EXFILDNS_INTERFACE dans .env (voir .env.example)}
+      # auto : interface de la route par défaut de l'hôte (réseau hôte)
+      - ${EXFILDNS_INTERFACE:-auto}
       - --base
       - /data/detections.db
       - --modele

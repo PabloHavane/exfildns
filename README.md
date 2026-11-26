@@ -195,7 +195,7 @@ Le champ `text` du message est affiché par Slack, Mattermost ou Rocket.Chat.
 ## Déploiement avec Docker
 
 ```bash
-cp .env.example .env        # choisir l'interface : celle de `ip route get 1.1.1.1`
+cp .env.example .env        # facultatif : interface choisie automatiquement (route par défaut)
 docker compose up -d --build
 # dashboard : http://localhost:8501
 ```

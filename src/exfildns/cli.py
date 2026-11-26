@@ -23,7 +23,7 @@ from exfildns.model import (
     split_par_capture,
 )
 from exfildns.pcap import read_dns_queries, requete_dns
-from exfildns.sniff import lots_reseau, ouvrir_base, surveiller
+from exfildns.sniff import choisir_interface, lots_reseau, ouvrir_base, surveiller
 
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 BASE_PAR_DEFAUT = "detections.db"
@@ -133,7 +133,8 @@ def commande_sniff(args) -> int:
             return 2
         return _surveiller(args, modele, lots, requete_journal, f"le journal {args.journal}")
     try:
-        lots = lots_reseau(args.interface)
+        interface = choisir_interface(args.interface)
+        lots = lots_reseau(interface)
     except PermissionError:
         print(
             "Droits insuffisants pour capturer : lancer en root ou donner la capacité "
@@ -144,7 +145,6 @@ def commande_sniff(args) -> int:
     except (ValueError, Scapy_Exception) as erreur:  # interface inconnue, libpcap absent
         print(f"Capture impossible : {erreur}", file=sys.stderr)
         return 2
-    interface = args.interface or "l'interface par défaut"
     return _surveiller(args, modele, lots, requete_dns, interface)
 
 
@@ -281,7 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
         " ou dans le journal d'un résolveur Unbound",
     )
     source = sniff.add_mutually_exclusive_group()
-    source.add_argument("-i", "--interface", help="interface à écouter (défaut : celle de scapy)")
+    source.add_argument(
+        "-i",
+        "--interface",
+        help="interface à écouter (défaut ou « auto » : celle de la route par défaut)",
+    )
     source.add_argument(
         "--journal",
         metavar="FICHIER",

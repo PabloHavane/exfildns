@@ -1,6 +1,7 @@
 import os
 import signal
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 from conftest import NOM_EXFIL, noms_benins, noms_exfil, requete
@@ -14,6 +15,7 @@ from exfildns.model import charger
 from exfildns.sniff import (
     FILTRE_BPF,
     PERIODE_PURGE,
+    choisir_interface,
     enregistrer,
     lots_reseau,
     noter,
@@ -354,6 +356,23 @@ def test_cli_sniff_retention_invalide(tmp_path, modele, valeur, capsys):
 
     assert sortie.value.code == 2
     assert "nombre positif" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("option", [[], ["-i", "auto"]])
+def test_cli_sniff_interface_automatique(tmp_path, modele, monkeypatch, capsys, option):
+    interfaces = []
+    monkeypatch.setattr("exfildns.sniff.conf", SimpleNamespace(iface="wlp9s0"))
+    monkeypatch.setattr("exfildns.cli.lots_reseau", lambda i: interfaces.append(i) or iter([]))
+
+    code = main(["sniff", *option, "-m", str(modele), "--base", str(tmp_path / "d.db")])
+
+    assert code == 0
+    assert interfaces == ["wlp9s0"]  # nom de l'interface de la route par défaut
+    assert "Capture DNS sur wlp9s0," in capsys.readouterr().out
+
+
+def test_choisir_interface_explicite():
+    assert choisir_interface("eth1") == "eth1"
 
 
 def test_cli_sniff_sans_droits(tmp_path, modele, monkeypatch, capsys):
