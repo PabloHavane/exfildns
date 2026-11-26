@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
+from exfildns import liste_blanche
 from exfildns.alertes import COLONNES_ALERTES
 from exfildns.statuts import appliquer, enregistrer, lire, ouvertes
 
@@ -108,3 +109,10 @@ def test_appliquer_sans_alerte(tmp_path):
     assert resultat.empty
     assert {"statut", "commentaire"} <= set(resultat.columns)
     assert ouvertes(resultat).empty
+
+
+def test_lire_base_creee_par_la_liste_blanche(tmp_path):
+    base = tmp_path / "statuts.db"
+    liste_blanche.ajouter(base, "exemple.com")  # la base existe, sans table des statuts
+
+    assert lire(base).empty

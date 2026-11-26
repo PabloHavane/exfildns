@@ -22,6 +22,9 @@ flowchart LR
     end
     V -->|http://localhost:8501| U((Analyste))
     P[fichier .pcap] -.->|plan B : import| T
+    B -.->|lecture seule| N[exfildns notifier<br/>facultatif]
+    E -.->|lecture seule| N
+    N -.->|POST JSON, alertes hautes| W((Webhook<br/>messagerie))
 ```
 
 | Composant | Rôle | Privilèges |
@@ -29,6 +32,7 @@ flowchart LR
 | `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
 | `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` ; avec `--retention N`, `sniff` supprime au démarrage puis toutes les heures les requêtes de plus de N jours | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
+| `exfildns notifier` | Facultatif : relit les deux bases toutes les 30 s, recalcule les alertes comme le dashboard (liste blanche, statuts) et POSTe en JSON chaque alerte **haute** ouverte, une seule fois par alerte (de nouveau si elle disparaît de la fenêtre d'une heure puis revient, ou au redémarrage du service) | aucun |
 | `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle. Table `liste_blanche` : domaines ajoutés depuis le dashboard, date d'ajout | — |
 
 **Une alerte** est levée quand un même domaine reçoit au moins 5 requêtes jugées suspectes
@@ -89,6 +93,14 @@ Variables de `.env` :
 | `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `30` |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
+| `EXFILDNS_WEBHOOK` | Adresse du webhook du service `notifier` (profil `notification`) | — |
+
+**Notification des alertes hautes** (facultative) : renseigner `EXFILDNS_WEBHOOK` (webhook
+entrant Slack, Mattermost, Rocket.Chat… : le champ `text` du JSON s'affiche tel quel), puis
+`docker compose --profile notification up -d`. Le message contient le domaine parent, le nombre
+de requêtes suspectes, le score max et les postes ; le domaine venant du réseau, il est réduit
+aux lettres, chiffres, `.`, `_`, `:` et `-` (le reste devient `?`) pour qu'un nom forgé n'injecte ni
+lien ni mention. Un envoi raté est retenté 30 s plus tard (`docker compose logs notifier`).
 
 ### Vérifier la détection
 
@@ -200,6 +212,7 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
+| `notifier` redémarre en boucle, « Adresse du webhook manquante » | `EXFILDNS_WEBHOOK` vide dans `.env` | la renseigner, puis `docker compose --profile notification up -d` |
 | `sniff` redémarre en boucle | modèle absent ou illisible, interface inconnue | `docker compose logs sniff` donne la cause ; le modèle doit être lisible par tous (`chmod 644`) |
 | Aucune requête dans le dashboard | mauvaise interface | interface de `ip route get 1.1.1.1` |
 | « Droits insuffisants pour capturer » | ni root ni `CAP_NET_RAW` | voir section 4 |

@@ -72,6 +72,29 @@ services:
       timeout: 5s
       retries: 3
 
+  # Notification des alertes hautes par webhook, facultative :
+  #   docker compose --profile notification up -d    (EXFILDNS_WEBHOOK dans .env)
+  notifier:
+    <<: *commun
+    profiles: [notification]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      # Variable plutôt qu'argument : l'adresse contient souvent un jeton, absent de `ps`
+      # vide : le service s'arrête avec « Adresse du webhook manquante » (docker compose logs)
+      EXFILDNS_WEBHOOK: ${EXFILDNS_WEBHOOK:-}
+    command:
+      - notifier
+      - --base
+      - /data/detections.db
+      - --statuts
+      - /etat/statuts.db
+    # Lecture seule des deux bases : mêmes alertes, statuts et liste blanche que le dashboard
+    volumes:
+      - detections:/data:ro
+      - statuts:/etat:ro
+
 volumes:
   detections:
   statuts:

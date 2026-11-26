@@ -176,3 +176,15 @@ seule base écrite par le dashboard, donc pas de nouveau volume ni de nouvelle o
 appliquée et non modifiable depuis l'interface : un retrait par erreur ferait réapparaître des
 faux positifs connus. Les saisies sont validées (forme d'un nom de domaine, au moins deux labels)
 pour qu'un « com » ne blanchisse pas tout un TLD. `scan --liste-blanche` (fichier) est inchangé.
+
+## 2026-11-26 — Notification des alertes hautes par webhook (#91)
+
+**Webhook HTTP générique** (POST JSON, champ `text`) : accepté tel quel par Slack, Mattermost,
+Rocket.Chat, ntfy…, sans dépendance (`urllib`). Un **service à part** (`exfildns notifier`), sans
+privilège, relit `detections.db` et `statuts.db` en lecture seule : il voit exactement les
+alertes du dashboard (liste blanche, statuts, sévérité) et la capture, qui a `NET_RAW`, reste
+inchangée. **Anti-répétition** : une notification par alerte, mémorisée en mémoire ; l'alerte
+est oubliée quand elle sort de la fenêtre d'une heure ou n'est plus ouverte, et un redémarrage
+peut renvoyer les alertes en cours (assumé : rien de plus à stocker). Le domaine, venu du
+réseau, est réduit à `[A-Za-z0-9._:-]` dans le message. Adresse passée par variable
+d'environnement (elle contient souvent un jeton) et limitée à http/https.
