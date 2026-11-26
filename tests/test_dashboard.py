@@ -1194,3 +1194,69 @@ def test_app_liste_blanche_appliquee_a_la_capture(tmp_path, modele, monkeypatch)
 
     assert not at.exception
     assert next(m.value for m in at.tabs[2].metric if m.label == "Alertes ouvertes") == "0"
+
+
+# --- authentification (#93) ---
+
+
+@pytest.fixture
+def protege(base_demo, monkeypatch):
+    monkeypatch.setenv("EXFILDNS_MOT_DE_PASSE", "s3cret-é")
+    monkeypatch.setattr(dashboard, "PAUSE_ECHEC", 0)
+    return app(base_demo, monkeypatch).run()
+
+
+def se_connecter(at, mot):
+    at.text_input(key="mot_de_passe").input(mot)
+    next(b for b in at.button if b.label == "Se connecter").click()
+    return at.run()
+
+
+def test_app_sans_mot_de_passe_ouverte(base_demo, monkeypatch):
+    monkeypatch.delenv("EXFILDNS_MOT_DE_PASSE", raising=False)
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert at.metric  # supervision affichée directement
+    assert not [b for b in at.sidebar.button if b.label == "Se déconnecter"]
+
+
+def test_app_protegee_n_affiche_rien_avant_connexion(protege):
+    assert not protege.exception
+    assert not protege.metric and not protege.tabs and not protege.sidebar.slider
+    assert protege.text_input(key="mot_de_passe").proto.type == 1  # PASSWORD : saisie masquée
+    assert "attaquant" not in str(protege)  # aucune donnée de la base dans la page
+
+
+def test_app_mauvais_mot_de_passe(protege):
+    at = se_connecter(protege, "faux")
+
+    assert not at.exception
+    assert at.error[0].value == "Mot de passe incorrect."
+    assert not at.metric
+    assert at.text_input(key="mot_de_passe").value == ""  # champ vidé
+
+
+def test_app_mot_de_passe_vide_refuse(protege):
+    at = se_connecter(protege, "")
+
+    assert at.error and not at.metric
+
+
+def test_app_bon_mot_de_passe_puis_deconnexion(protege):
+    at = se_connecter(protege, "s3cret-é")
+
+    assert not at.exception
+    assert next(m.value for m in at.metric if m.label == "Alertes ouvertes") == "1"
+    at.sidebar.button(key="deconnexion").click()
+    at = at.run()
+
+    assert not at.metric
+    assert at.text_input(key="mot_de_passe")
+
+
+def test_app_mot_de_passe_variable_vide_ouverte(base_demo, monkeypatch):
+    monkeypatch.setenv("EXFILDNS_MOT_DE_PASSE", "")  # comme compose sans valeur dans .env
+    at = app(base_demo, monkeypatch).run()
+
+    assert at.metric

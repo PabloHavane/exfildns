@@ -188,3 +188,14 @@ est oubliée quand elle sort de la fenêtre d'une heure ou n'est plus ouverte, e
 peut renvoyer les alertes en cours (assumé : rien de plus à stocker). Le domaine, venu du
 réseau, est réduit à `[A-Za-z0-9._:-]` dans le message. Adresse passée par variable
 d'environnement (elle contient souvent un jeton) et limitée à http/https.
+
+## 2026-11-26 — Mot de passe vérifié par le dashboard (#93)
+
+Le dashboard demande le mot de passe de `EXFILDNS_MOT_DE_PASSE` avant d'afficher quoi que ce soit
+(comparaison en temps constant, pause d'1 s après un échec). Écarté : l'authentification native
+de Streamlit, qui exige un fournisseur OIDC ; un reverse proxy dans compose, qui ajoute une image
+tierce et ne protège pas le dashboard lancé hors Docker. Sans variable, l'accès reste libre (le
+dashboard n'écoute que sur localhost). Limites assumées : un seul mot de passe partagé (à choisir long : la pause ne freine qu'une
+session, pas des essais en parallèle), reconnexion à chaque rechargement de la page, pas
+d'auteur des changements de statut, et pas de chiffrement : hors de localhost, un proxy HTTPS
+devant le dashboard reste nécessaire.
