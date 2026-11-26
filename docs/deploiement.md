@@ -55,7 +55,10 @@ réseau, et le dashboard (exposé à l'utilisateur) n'en a aucun.
 
 ### Quelle interface surveiller ?
 
-Celle par laquelle sort le trafic DNS, c'est-à-dire l'interface de la **route par défaut** :
+Celle par laquelle sort le trafic DNS, c'est-à-dire l'interface de la **route par défaut**.
+C'est le choix automatique (`EXFILDNS_INTERFACE=auto`, défaut) : `sniff` affiche au démarrage
+l'interface retenue (`docker compose logs sniff` : « Capture DNS sur wlp2s0… »). Pour vérifier
+ou forcer une autre interface :
 
 ```bash
 ip route get 1.1.1.1
@@ -70,7 +73,7 @@ rien : c'est le premier point à vérifier si aucune requête n'apparaît.
 ```bash
 git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
 cp /chemin/vers/exfildns.keras models/          # si le modèle vient d'ailleurs
-cp .env.example .env                            # puis renseigner EXFILDNS_INTERFACE
+cp .env.example .env                            # réglages facultatifs
 docker compose up -d --build                    # premier build : ~0,7 Go à télécharger
 ```
 
@@ -90,7 +93,7 @@ Variables de `.env` :
 
 | Variable | Rôle | Défaut |
 |---|---|---|
-| `EXFILDNS_INTERFACE` | Interface à surveiller (obligatoire) | — |
+| `EXFILDNS_INTERFACE` | Interface à surveiller ; `auto` : celle de la route par défaut | `auto` |
 | `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `30` |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
@@ -243,7 +246,7 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
 |---|---|---|
 | `notifier` redémarre en boucle, « Adresse du webhook manquante » | `EXFILDNS_WEBHOOK` vide dans `.env` | la renseigner, puis `docker compose --profile notification up -d` |
 | `sniff` redémarre en boucle | modèle absent ou illisible, interface inconnue | `docker compose logs sniff` donne la cause ; le modèle doit être lisible par tous (`chmod 644`) |
-| Aucune requête dans le dashboard | mauvaise interface | interface de `ip route get 1.1.1.1` |
+| Aucune requête dans le dashboard | mauvaise interface (forcée, ou route par défaut changée depuis le démarrage) | interface de `ip route get 1.1.1.1` ; avec `auto`, `docker compose restart sniff` |
 | « Droits insuffisants pour capturer » | ni root ni `CAP_NET_RAW` | voir section 4 |
 | « Capture impossible : … libpcap » | libpcap absent (hors Docker) | installer `libpcap0.8` / `libpcap` |
 | Heures décalées d'une heure, ou axe de l'activité DNS sans heures | conteneur en UTC, fuseau différent de celui du navigateur | `TZ` dans `.env` |
