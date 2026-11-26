@@ -34,6 +34,8 @@ services:
       - /data/detections.db
       - --modele
       - /models/exfildns.keras
+      - --retention
+      - ${EXFILDNS_RETENTION:-30}
     volumes:
       - ./models:/models:ro
       - detections:/data

@@ -104,8 +104,11 @@ uv run exfildns scan capture.pcap > rapport.txt
 ### Détecter en direct sur le réseau
 
 ```bash
-sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras]
+sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras] [--retention 30]
 ```
+
+`--retention 30` supprime les requêtes de plus de 30 jours, au démarrage puis toutes les heures
+(par défaut tout est gardé ; 30 jours dans le déploiement Docker).
 
 ```
 Capture DNS sur wlan0, requêtes enregistrées dans detections.db.
