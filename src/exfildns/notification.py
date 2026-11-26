@@ -7,6 +7,7 @@ apparue. Il ne demande aucun privilège ; la capture, elle, n'a rien à savoir d
 (docs/decisions.md).
 """
 
+import http.client
 import json
 import re
 import sqlite3
@@ -25,13 +26,13 @@ from exfildns.dashboard import lire_requetes
 
 # Caractères gardés tels quels dans le texte d'un message : le reste vient du réseau, il est
 # remplacé pour qu'un nom forgé ne puisse pas injecter de mise en forme, de lien ni de mention.
-CARACTERES_SURS = re.compile(r"[^A-Za-z0-9._-]")
+CARACTERES_SURS = re.compile(r"[^A-Za-z0-9._:-]")  # `:` pour les adresses IPv6
 LONGUEUR_MAX = 100
 DELAI_ENVOI = 10  # secondes avant d'abandonner un envoi (réessayé au tour suivant)
 
 
 def assainir(texte: str) -> str:
-    """Texte réduit aux lettres, chiffres, `.`, `_`, `-` (autres caractères -> `?`), tronqué."""
+    """Texte réduit aux lettres, chiffres, `.`, `_`, `:`, `-` (autres -> `?`), tronqué."""
     sur = CARACTERES_SURS.sub("?", str(texte))
     return sur if len(sur) <= LONGUEUR_MAX else sur[: LONGUEUR_MAX - 1] + "…"
 
@@ -54,7 +55,7 @@ def alertes_hautes(
 def message(alerte) -> dict:
     """Corps JSON envoyé pour une alerte ; `text` est lu par Slack, Mattermost, Rocket.Chat…"""
     domaine = assainir(alerte.domaine)
-    postes = [assainir(p) for p in str(alerte.postes).split(",")][:5]
+    postes = [assainir(p.strip()) for p in str(alerte.postes).split(",")][:5]
     fin = datetime.fromtimestamp(alerte.fin, UTC).isoformat(timespec="seconds")
     return {
         "text": (
@@ -107,7 +108,7 @@ def tour(
             continue
         try:
             envoi(message(alerte))
-        except OSError as erreur:
+        except (OSError, ValueError, http.client.HTTPException) as erreur:  # dont adresse malformée
             journal(f"Notification non envoyée ({assainir(alerte.domaine)}) : {erreur}")
             continue
         deja.add(alerte.domaine)

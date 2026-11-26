@@ -307,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     notifier.add_argument(
         "--webhook",
         type=url_webhook,
-        default=os.environ.get("EXFILDNS_WEBHOOK"),
+        default=os.environ.get("EXFILDNS_WEBHOOK") or None,  # vide (compose) : non défini
         help="adresse où POSTer les alertes en JSON (défaut : variable EXFILDNS_WEBHOOK)",
     )
     notifier.add_argument("--seuil", type=float, default=SEUIL, help="seuil de détection")

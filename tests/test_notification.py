@@ -46,7 +46,7 @@ def passer(base, deja, envoi=None, maintenant=MAINTENANT):
 
 def test_assainir():
     assert assainir("attaquant.example") == "attaquant.example"
-    assert assainir("<@channel>[lien](http://x)`") == "??channel??lien??http???x??"
+    assert assainir("<@channel>[lien](http://x)`") == "??channel??lien??http:??x??"
     assert assainir("a" * 300) == "a" * 99 + "…"
 
 
@@ -65,14 +65,14 @@ def test_message_alerte_haute(base):
 
 
 def test_message_domaine_forge_neutralise():
-    alerte = type("A", (), {"domaine": "x`<!here>.com", "postes": "10.0.0.1,<b>",
+    alerte = type("A", (), {"domaine": "x`<!here>.com", "postes": "10.0.0.1, fe80::1, <b>",
                             "requetes_suspectes": 10, "score_max": 0.95, "fin": 0.0})  # fmt: skip
 
     corps = message(alerte)
 
     assert corps["domaine"] == "x???here?.com"
     assert "<" not in corps["text"] and corps["text"].count("`") == 2
-    assert corps["postes"] == ["10.0.0.1", "?b?"]
+    assert corps["postes"] == ["10.0.0.1", "fe80::1", "?b?"]
 
 
 def test_une_seule_notification_par_alerte(base):
@@ -121,6 +121,12 @@ def test_liste_blanche_du_dashboard_appliquee(base):
     liste_blanche.ajouter(base.with_name("statuts.db"), "attaquant.example")
 
     assert passer(base, set())[0] == []
+
+
+def test_adresse_malformee_journalisee_sans_arret(base):
+    envoyes, journal = passer(base, set(), envoi=lambda corps: envoyer("http://x:port/", corps))
+
+    assert "Notification non envoyée" in journal[0]
 
 
 def test_envoi_rate_retente_au_tour_suivant(base):
@@ -205,8 +211,12 @@ def test_cli_notifier_webhook_par_variable(base, serveur, monkeypatch):
     assert len(recus) == 1
 
 
-def test_cli_notifier_sans_webhook(base, monkeypatch, capsys):
-    monkeypatch.delenv("EXFILDNS_WEBHOOK", raising=False)
+@pytest.mark.parametrize("variable", [None, ""])  # absente, ou vide comme dans compose
+def test_cli_notifier_sans_webhook(base, variable, monkeypatch, capsys):
+    if variable is None:
+        monkeypatch.delenv("EXFILDNS_WEBHOOK", raising=False)
+    else:
+        monkeypatch.setenv("EXFILDNS_WEBHOOK", variable)
 
     assert main(["notifier", "--base", str(base)]) == 2
     assert "EXFILDNS_WEBHOOK" in capsys.readouterr().err
