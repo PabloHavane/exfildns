@@ -29,7 +29,7 @@ flowchart LR
 
 | Composant | Rôle | Privilèges |
 |---|---|---|
-| `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
+| `exfildns sniff` | Capture les requêtes DNS d'une interface (ou les lit dans le journal d'un résolveur Unbound avec `--journal`), note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) ; avec `--journal`, lecture du fichier seulement |
 | `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` ; avec `--retention N`, `sniff` supprime au démarrage puis toutes les heures les requêtes de plus de N jours | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
 | `exfildns notifier` | Facultatif : relit les deux bases toutes les 30 s, recalcule les alertes comme le dashboard (liste blanche, statuts) et POSTe en JSON chaque alerte **haute** ouverte, une seule fois par alerte (de nouveau si elle disparaît de la fenêtre d'une heure puis revient, ou au redémarrage du service) | aucun |
@@ -154,6 +154,32 @@ cp "$(readlink -f .venv/bin/python)" .venv/bin/python-capture
 sudo setcap cap_net_raw+ep .venv/bin/python-capture
 .venv/bin/python-capture -m exfildns.cli sniff -i eth0 --base detections.db
 ```
+
+### Source alternative : le journal d'un résolveur Unbound
+
+Le capteur réseau ne voit que le trafic de sa machine (ou d'un port miroir). Si les postes
+passent par un résolveur **Unbound**, son journal couvre tout le réseau. Dans `unbound.conf` :
+
+```yaml
+server:
+    log-queries: yes          # une ligne par requête : client, nom, type
+    use-syslog: no
+    logfile: "/var/log/unbound/unbound.log"
+    log-time-ascii: no        # horodatage Unix (défaut), seul format lu
+```
+
+```bash
+.venv/bin/exfildns sniff --journal /var/log/unbound/unbound.log --base detections.db
+```
+
+`sniff` suit le fichier comme `tail -F` (nouvelles lignes seulement, rotation et troncature
+gérées) et note chaque requête avec le même calcul de features que la capture. Il suffit de
+pouvoir lire le fichier : aucune capacité réseau. Limites : pas de **taille** de message
+(colonne vide), le **poste** est le client vu par le résolveur (un relais ou un NAT masque le
+vrai poste), le **serveur DNS** est noté `résolveur`, Unbound peut remplacer dans le journal
+les caractères inhabituels d'un nom (non ASCII, espaces…) par `?`, ce qui change les features
+`special` et `entropy` de ces noms (base64, hex et base32 ne sont pas touchés), et le journal
+grossit vite sur un réseau chargé (prévoir la rotation).
 
 ## 5. Scénario de démonstration
 

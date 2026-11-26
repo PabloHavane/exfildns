@@ -124,6 +124,12 @@ suspectes s'affichent au fil de l'eau. La capture demande **root** ou la capacit
 **`CAP_NET_RAW`** ; sans `-i`, scapy choisit l'interface de la route par défaut.
 Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
 
+**Sans port miroir** : `exfildns sniff --journal /var/log/unbound/unbound.log` suit le journal
+d'un résolveur **Unbound** au lieu du réseau, et voit ainsi les requêtes de tous les postes qui
+l'utilisent (aucun privilège réseau, seulement le droit de lire le fichier). Mêmes features,
+même base, même dashboard ; la configuration d'Unbound et les limites sont dans
+[docs/deploiement.md](docs/deploiement.md).
+
 ### Superviser avec le dashboard
 
 ```bash
@@ -238,7 +244,7 @@ uv run ruff check . && uv run ruff format --check .
 Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (features d'un nom
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
-(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `notification.py` (webhook des alertes hautes), `dashboard.py` (Streamlit), `synthese.py` (chiffres
+(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `notification.py` (webhook des alertes hautes), `journal.py` (journal du résolveur Unbound), `dashboard.py` (Streamlit), `synthese.py` (chiffres
 clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 

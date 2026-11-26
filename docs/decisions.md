@@ -199,3 +199,12 @@ dashboard n'écoute que sur localhost). Limites assumées : un seul mot de passe
 session, pas des essais en parallèle), reconnexion à chaque rechargement de la page, pas
 d'auteur des changements de statut, et pas de chiffrement : hors de localhost, un proxy HTTPS
 devant le dashboard reste nécessaire.
+
+## 2026-11-26 — Journal d'Unbound comme seconde source de `sniff` (#94)
+
+**Unbound** (`log-queries`) plutôt que BIND ou Pi-hole : résolveur récursif répandu, une ligne
+par requête et un **horodatage Unix**, alors que dnsmasq (Pi-hole) écrit une date syslog sans
+année. Chaque ligne devient le même tuple qu'un paquet décodé (`pcap.requete_dns`) : notation,
+base, alertes et dashboard sont inchangés (`noter` reçoit le décodeur). Option
+`sniff --journal`, exclusive de `-i`, plutôt qu'une nouvelle commande. Pas de taille de message
+dans le journal : la colonne reste vide, comme pour une base antérieure.
