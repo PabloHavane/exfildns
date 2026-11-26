@@ -93,6 +93,7 @@ Variables de `.env` :
 | `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `30` |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
+| `EXFILDNS_MOT_DE_PASSE` | Mot de passe demandé à l'ouverture du dashboard (vide : accès libre) | — |
 | `EXFILDNS_WEBHOOK` | Adresse du webhook du service `notifier` (profil `notification`) | — |
 
 **Notification des alertes hautes** (facultative) : renseigner `EXFILDNS_WEBHOOK` (webhook
@@ -128,7 +129,8 @@ Les détections restent dans le volume `detections`, les statuts d'alertes dans 
 fichiers en lecture seule. Le dashboard monte les détections en lecture seule et n'écrit que
 dans le volume `statuts`. Le dashboard n'est publié que sur `127.0.0.1` : il affiche les noms
 demandés et les adresses des postes. Pour y accéder à distance, passer par un tunnel SSH
-(`ssh -L 8501:localhost:8501 machine`) plutôt que de l'exposer.
+(`ssh -L 8501:localhost:8501 machine`) plutôt que de l'exposer ; s'il doit l'être, définir
+`EXFILDNS_MOT_DE_PASSE` (long) et placer un proxy HTTPS devant.
 
 ## 4. Déploiement sans Docker
 

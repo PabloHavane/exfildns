@@ -169,6 +169,12 @@ doit plus alerter, en direct comme pour une capture importée ; la liste par dé
 toujours appliquée. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
 
+Avant de l'exposer, définir `EXFILDNS_MOT_DE_PASSE` (long : la pause après un échec ne freine
+qu'une session) : le dashboard demande alors ce mot de passe
+avant d'afficher quoi que ce soit (bouton « Se déconnecter » dans la barre latérale). Le
+dashboard ne chiffre pas : hors de `localhost`, le placer derrière un proxy HTTPS pour que le
+mot de passe ne circule pas en clair.
+
 ### Être notifié des alertes hautes
 
 ```bash

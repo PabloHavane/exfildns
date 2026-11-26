@@ -44,6 +44,10 @@ services:
     <<: *commun
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      # Mot de passe demandé à l'ouverture du dashboard ; vide : accès libre
+      EXFILDNS_MOT_DE_PASSE: ${EXFILDNS_MOT_DE_PASSE:-}
     command:
       - dashboard
       - --base
