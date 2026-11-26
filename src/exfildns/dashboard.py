@@ -4,12 +4,14 @@ Lancement : `exfildns dashboard` (ou `streamlit run src/exfildns/dashboard.py`).
 La base à lire est donnée par la variable d'environnement `EXFILDNS_BASE`, le modèle utilisé
 pour analyser une capture importée par `EXFILDNS_MODELE`, la base des statuts d'alertes et de la
 liste blanche (la seule où le dashboard écrit) par `EXFILDNS_STATUTS` (par défaut `statuts.db` à
-côté de la base).
+côté de la base). Si `EXFILDNS_MOT_DE_PASSE` est définie, le dashboard demande ce mot de passe
+avant d'afficher quoi que ce soit (docs/decisions.md).
 
 Les fonctions de préparation des données sont pures et testées sans navigateur ; l'interface
 n'est construite que lorsque Streamlit exécute ce fichier (`page()`, tout en bas).
 """
 
+import hmac
 import html
 import io
 import os
@@ -30,6 +32,7 @@ BASE_PAR_DEFAUT = "detections.db"
 STATUTS = "statuts.db"  # nom par défaut de la base des statuts, à côté de la base des détections
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
+PAUSE_ECHEC = 1.0  # secondes d'attente après un mauvais mot de passe
 CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
 RAFRAICHISSEMENT = 5  # secondes
 ALERTES_MAX = 20  # cartes affichées dans la file d'alertes
@@ -945,10 +948,41 @@ def panneau_liste_blanche(st, chemin: str) -> list[str]:
     return [*LISTE_BLANCHE, *ajoutes]
 
 
+def authentifie(st, attendu: str | None) -> bool:
+    """Vrai si l'accès est ouvert ; sinon affiche le formulaire de connexion et renvoie Faux.
+
+    Sans mot de passe configuré (`attendu` vide), le dashboard est ouvert : il n'écoute alors
+    que sur localhost par défaut. La connexion vaut pour la session Streamlit : un rechargement
+    de la page ou un nouvel onglet redemande le mot de passe.
+    """
+    if not attendu or st.session_state.get("authentifie"):
+        return True
+
+    def verifier() -> None:
+        saisi = st.session_state.get("mot_de_passe", "")
+        if hmac.compare_digest(saisi.encode(), attendu.encode()):  # temps constant
+            st.session_state["authentifie"] = True
+        else:
+            time.sleep(PAUSE_ECHEC)  # freine les essais en rafale
+            st.session_state["erreur_connexion"] = True
+        st.session_state["mot_de_passe"] = ""
+
+    st.title("exfildns")
+    with st.form("connexion"):
+        st.text_input("Mot de passe", type="password", key="mot_de_passe")
+        st.form_submit_button("Se connecter", on_click=verifier)
+    if st.session_state.pop("erreur_connexion", False):
+        st.error("Mot de passe incorrect.")
+    return False
+
+
 def page() -> None:
     import streamlit as st
 
     st.set_page_config(page_title="exfildns", layout="wide")
+    mot_de_passe = os.environ.get("EXFILDNS_MOT_DE_PASSE")
+    if not authentifie(st, mot_de_passe):
+        st.stop()
     base = os.environ.get("EXFILDNS_BASE", BASE_PAR_DEFAUT)
     chemin_modele = os.environ.get("EXFILDNS_MODELE", MODELE_PAR_DEFAUT)
     chemin_statuts = os.environ.get("EXFILDNS_STATUTS") or str(Path(base).with_name(STATUTS))
@@ -963,6 +997,8 @@ def page() -> None:
         auto = st.toggle(f"Rafraîchir toutes les {RAFRAICHISSEMENT} s", True, key="auto")
         liste = panneau_liste_blanche(st, chemin_statuts)
         st.caption(f"Base : `{base}`")
+        if mot_de_passe:
+            st.button("Se déconnecter", on_click=st.session_state.clear, key="deconnexion")
 
     rafraichissement = RAFRAICHISSEMENT if auto else None
 
