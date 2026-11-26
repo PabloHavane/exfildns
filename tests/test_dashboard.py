@@ -188,6 +188,24 @@ def test_lire_requetes_fichiers_non_modifiables_capture_en_cours(tmp_path):
         ecrivain.close()
 
 
+def test_lire_requetes_volume_en_lecture_seule_capture_arretee(base_demo, monkeypatch):
+    # volume Docker :ro sans -shm : SQLite ne dit pas « readonly » mais « unable to open »
+    # (un chmod ne reproduit pas ce cas : refus de permission et non système en lecture seule)
+    lire = dashboard._lire
+
+    def comme_sur_un_volume_ro(uri, sql, params):
+        if "immutable=1" not in uri:
+            raise pd.errors.DatabaseError(
+                f"Execution failed on sql '{sql}': unable to open database file"
+            )
+        return lire(uri, sql, params)
+
+    monkeypatch.setattr(dashboard, "_lire", comme_sur_un_volume_ro)
+
+    assert len(lire_requetes(base_demo)) == 30
+    assert derniere_requete(base_demo) is not None
+
+
 def test_lire_requetes_autre_erreur_non_masquee(tmp_path):
     base = tmp_path / "pas_une_base.db"
     base.write_text("ceci n'est pas une base SQLite")
