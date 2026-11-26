@@ -18,7 +18,7 @@ flowchart LR
         A[alertes par domaine<br/>alertes.py] --> V[vues Streamlit<br/>dashboard.py]
         Y[chiffres clés, file d'alertes<br/>synthese.py] --> V
         Q[détail d'une requête<br/>detail.py] --> V
-        V <-->|statut des alertes<br/>statuts.py| E[(statuts.db<br/>SQLite)]
+        V <-->|statut des alertes, liste blanche<br/>statuts.py, liste_blanche.py| E[(statuts.db<br/>SQLite)]
     end
     V -->|http://localhost:8501| U((Analyste))
     P[fichier .pcap] -.->|plan B : import| T
@@ -29,11 +29,12 @@ flowchart LR
 | `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
 | `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` ; avec `--retention N`, `sniff` supprime au démarrage puis toutes les heures les requêtes de plus de N jours | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
-| `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle | — |
+| `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle. Table `liste_blanche` : domaines ajoutés depuis le dashboard, date d'ajout | — |
 
 **Une alerte** est levée quand un même domaine reçoit au moins 5 requêtes jugées suspectes
 (probabilité ≥ 0,5) : un tunnel DNS en envoie des centaines, un faux positif isolé une seule.
-Les domaines de la liste blanche (CDN, cloud) n'alertent jamais.
+Les domaines de la liste blanche (CDN, cloud, plus ceux ajoutés depuis le panneau « Liste
+blanche » du dashboard) n'alertent jamais.
 
 La capture et le dashboard sont deux processus séparés : seul le premier a besoin de droits
 réseau, et le dashboard (exposé à l'utilisateur) n'en a aucun.

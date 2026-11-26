@@ -12,8 +12,8 @@ from scapy.layers.inet import IP, TCP
 from scapy.layers.l2 import Ether
 from streamlit.testing.v1 import AppTest
 
-from exfildns import dashboard, statuts
-from exfildns.alertes import alertes
+from exfildns import dashboard, liste_blanche, statuts
+from exfildns.alertes import LISTE_BLANCHE, alertes
 from exfildns.cli import main
 from exfildns.dashboard import (
     activite_dns,
@@ -1109,3 +1109,88 @@ def test_app_statuts_illisibles(base_demo, monkeypatch):
     assert not at.exception
     assert "Statuts d'alertes illisibles" in at.warning[0].value
     assert alertes_ouvertes(at) == "1"  # la supervision reste affichée
+
+
+# --- liste blanche modifiable (#92) ---
+
+
+def panneau(at):
+    return next(e for e in at.sidebar.expander if e.label.startswith("Liste blanche"))
+
+
+def ajouter_a_la_liste(at, domaine):
+    at.sidebar.text_input(key="liste_blanche_nouveau").input(domaine)
+    next(b for b in at.sidebar.button if b.label == "Ajouter").click()
+    return at.run()
+
+
+def test_app_liste_blanche_par_defaut(base_demo, monkeypatch):
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert panneau(at).label == f"Liste blanche ({len(LISTE_BLANCHE)} domaines)"
+    assert "cloudfront.net" in texte(at.sidebar)
+    assert not (base_demo.parent / "statuts.db").exists()  # rien d'écrit sans action
+
+
+def test_app_ajout_a_la_liste_blanche_supprime_l_alerte(base_demo, monkeypatch):
+    at = ajouter_a_la_liste(app(base_demo, monkeypatch).run(), " Attaquant.Example ")
+
+    assert not at.exception
+    assert liste_blanche.lire(base_demo.parent / "statuts.db") == ["attaquant.example"]
+    assert alertes_ouvertes(at) == "0"
+    assert "attaquant.example" in [t.value for t in at.sidebar.text]
+    assert at.sidebar.text_input(key="liste_blanche_nouveau").value == ""  # champ vidé
+
+
+def test_app_retrait_de_la_liste_blanche_retablit_l_alerte(base_demo, monkeypatch):
+    liste_blanche.ajouter(base_demo.parent / "statuts.db", "attaquant.example")
+    at = app(base_demo, monkeypatch).run()
+    assert alertes_ouvertes(at) == "0"
+
+    at.sidebar.button(key="liste_blanche_retirer_attaquant.example").click()
+    at = at.run()
+
+    assert not at.exception
+    assert liste_blanche.lire(base_demo.parent / "statuts.db") == []
+    assert alertes_ouvertes(at) == "1"
+
+
+def test_app_liste_blanche_domaine_invalide(base_demo, monkeypatch):
+    at = ajouter_a_la_liste(app(base_demo, monkeypatch).run(), "pas un domaine")
+
+    assert not at.exception
+    assert "domaine invalide" in at.sidebar.error[0].value
+    assert at.sidebar.text_input(key="liste_blanche_nouveau").value == "pas un domaine"
+    assert alertes_ouvertes(at) == "1"
+
+
+def test_app_liste_blanche_base_non_inscriptible(base_demo, tmp_path, monkeypatch):
+    (tmp_path / "fichier").write_text("")
+    monkeypatch.setenv("EXFILDNS_STATUTS", str(tmp_path / "fichier" / "statuts.db"))
+
+    at = ajouter_a_la_liste(app(base_demo, monkeypatch).run(), "attaquant.example")
+
+    assert not at.exception
+    assert "Domaine non enregistré" in at.sidebar.error[0].value
+    assert alertes_ouvertes(at) == "1"
+
+
+def test_app_liste_blanche_illisible(base_demo, monkeypatch):
+    (base_demo.parent / "statuts.db").write_text("pas une base SQLite")
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert "Liste blanche illisible" in at.sidebar.warning[0].value
+    assert alertes_ouvertes(at) == "1"  # liste par défaut appliquée, supervision affichée
+
+
+def test_app_liste_blanche_appliquee_a_la_capture(tmp_path, modele, monkeypatch):
+    liste_blanche.ajouter(tmp_path / "statuts.db", "attaquant.example")
+    at = app_capture(tmp_path, modele, monkeypatch)
+    paquets = [requete(q) for q in noms_exfil(20, graine=3)]
+
+    at = deposer(at, "tunnel.pcap", octets_pcap(tmp_path, paquets))
+
+    assert not at.exception
+    assert next(m.value for m in at.tabs[2].metric if m.label == "Alertes ouvertes") == "0"
