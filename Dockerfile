@@ -3,6 +3,15 @@
 #   dashboard  supervision Streamlit, sans aucun privilège
 # Le modèle (.keras) et les données ne sont jamais dans l'image : ils sont montés.
 
+# --- Étape 0 : pyproject.toml et uv.lock sans la version d'exfildns ---
+# Une release ne change que cette version : sans ce filtre, elle invaliderait la couche des
+# dépendances (~2,2 Go), reconstruite et réexportée pendant plus d'une minute.
+FROM python:3.12.16-slim-bookworm@sha256:82836454a795d9d75549a9e157fd08dbac6c383292cf89e99f4248a97ce6b2ff AS manifestes
+WORKDIR /m
+COPY pyproject.toml uv.lock ./
+RUN sed -i '0,/^version = /s/^version = .*/version = "0"/' pyproject.toml \
+    && sed -i '/^name = "exfildns"$/{n;s/^version = .*/version = "0"/}' uv.lock
+
 # --- Étape 1 : environnement Python construit par uv, à partir de uv.lock ---
 FROM python:3.12.16-slim-bookworm@sha256:82836454a795d9d75549a9e157fd08dbac6c383292cf89e99f4248a97ce6b2ff AS dependances
 COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /usr/local/bin/uv
@@ -13,14 +22,14 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_HTTP_TIMEOUT=300
 WORKDIR /app
 # Dépendances d'abord (couche en cache tant que uv.lock ne change pas), puis le code
-COPY pyproject.toml uv.lock ./
+COPY --from=manifestes /m/pyproject.toml /m/uv.lock ./
 # Cache uv partagé entre les builds (hors image) : pas de nouveau téléchargement à chaque fois
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
 # --- Étape 2 : le paquet exfildns seul, mis à part pour sa propre couche (quelques centaines de Ko) ---
 FROM dependances AS construction
-COPY README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable \
