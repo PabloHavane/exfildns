@@ -169,6 +169,17 @@ doit plus alerter, en direct comme pour une capture importée ; la liste par dé
 toujours appliquée. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
 
+### Être notifié des alertes hautes
+
+```bash
+EXFILDNS_WEBHOOK=https://chat.exemple.fr/hooks/xxx uv run exfildns notifier [--base detections.db] [--statuts statuts.db]
+```
+
+Relit les bases toutes les 30 s (`--intervalle`) et envoie en POST JSON chaque alerte de
+sévérité **haute** ouverte sur la dernière heure (`--fenetre 60`), une seule fois par alerte.
+Mêmes alertes que le dashboard : liste blanche et statuts (faux positif, close) sont respectés.
+Le champ `text` du message est affiché par Slack, Mattermost ou Rocket.Chat.
+
 ## Déploiement avec Docker
 
 ```bash
@@ -221,7 +232,7 @@ uv run ruff check . && uv run ruff format --check .
 Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (features d'un nom
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
-(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `dashboard.py` (Streamlit), `synthese.py` (chiffres
+(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `notification.py` (webhook des alertes hautes), `dashboard.py` (Streamlit), `synthese.py` (chiffres
 clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 
