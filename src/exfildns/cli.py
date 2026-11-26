@@ -8,7 +8,7 @@ from pathlib import Path
 
 from scapy.error import Scapy_Exception
 
-from exfildns import __version__, dashboard
+from exfildns import __version__, dashboard, notification
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, lire_liste_blanche
 from exfildns.dataset import load_dataset
 from exfildns.evaluation import SEUIL, evaluer
@@ -106,14 +106,14 @@ def commande_scan(args) -> int:
     return 1 if len(resume) else 0
 
 
-def jours_positifs(texte: str) -> float:
-    """Valide l'option --retention : un nombre de jours strictement positif."""
+def positif(texte: str) -> float:
+    """Valide une durée (--retention, --fenetre, --intervalle) : nombre strictement positif."""
     try:
         jours = float(texte)
     except ValueError:
         jours = 0.0
     if not jours > 0:  # rejette aussi NaN
-        raise argparse.ArgumentTypeError(f"nombre de jours positif attendu : {texte!r}")
+        raise argparse.ArgumentTypeError(f"nombre positif attendu : {texte!r}")
     return jours
 
 
@@ -180,6 +180,40 @@ def commande_dashboard(args) -> int:
     return 0  # jamais atteint (sauf quand exec est remplacé dans les tests)
 
 
+def url_webhook(texte: str) -> str:
+    """Valide l'adresse du webhook : http ou https uniquement (pas de file:// ni autre schéma)."""
+    if not texte.startswith(("http://", "https://")):
+        raise argparse.ArgumentTypeError("adresse http:// ou https:// attendue pour le webhook")
+    return texte
+
+
+def commande_notifier(args) -> int:
+    if not args.webhook:
+        print(
+            "Adresse du webhook manquante : --webhook ou variable EXFILDNS_WEBHOOK.",
+            file=sys.stderr,
+        )
+        return 2
+    chemin_statuts = args.statuts or str(Path(args.base).with_name("statuts.db"))
+    # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    print(
+        f"Notification des alertes hautes de {args.base} toutes les {args.intervalle:g} s ;"
+        " Ctrl+C pour arrêter.",
+        flush=True,
+    )
+    notification.surveiller(
+        args.base,
+        chemin_statuts,
+        args.webhook,
+        args.seuil,
+        args.min_requetes,
+        args.fenetre * 60,
+        args.intervalle,
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="exfildns",
@@ -240,7 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sniff.add_argument(
         "--retention",
-        type=jours_positifs,
+        type=positif,
         metavar="JOURS",
         help="supprime les requêtes plus anciennes que JOURS jours (défaut : tout garder)",
     )
@@ -261,6 +295,40 @@ def build_parser() -> argparse.ArgumentParser:
         "--adresse", default="localhost", help="adresse d'écoute (0.0.0.0 : tout le réseau)"
     )
     tableau.set_defaults(fonction=commande_dashboard)
+
+    notifier = commandes.add_parser(
+        "notifier", help="envoie les alertes de sévérité haute à un webhook HTTP"
+    )
+    notifier.add_argument("--base", default=BASE_PAR_DEFAUT, help="base SQLite écrite par sniff")
+    notifier.add_argument(
+        "--statuts",
+        help="base du dashboard : statuts et liste blanche (défaut : statuts.db à côté de --base)",
+    )
+    notifier.add_argument(
+        "--webhook",
+        type=url_webhook,
+        default=os.environ.get("EXFILDNS_WEBHOOK"),
+        help="adresse où POSTer les alertes en JSON (défaut : variable EXFILDNS_WEBHOOK)",
+    )
+    notifier.add_argument("--seuil", type=float, default=SEUIL, help="seuil de détection")
+    notifier.add_argument(
+        "--min-requetes", type=int, default=MIN_REQUETES, help="requêtes suspectes pour une alerte"
+    )
+    notifier.add_argument(
+        "--fenetre",
+        type=positif,
+        default=60.0,
+        metavar="MINUTES",
+        help="requêtes prises en compte : les MINUTES dernières (défaut : 60)",
+    )
+    notifier.add_argument(
+        "--intervalle",
+        type=positif,
+        default=30.0,
+        metavar="SECONDES",
+        help="délai entre deux vérifications (défaut : 30)",
+    )
+    notifier.set_defaults(fonction=commande_notifier)
     return parser
 
 

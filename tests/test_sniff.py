@@ -353,7 +353,7 @@ def test_cli_sniff_retention_invalide(tmp_path, modele, valeur, capsys):
         main(["sniff", "-m", str(modele), "--retention", valeur])
 
     assert sortie.value.code == 2
-    assert "nombre de jours positif" in capsys.readouterr().err
+    assert "nombre positif" in capsys.readouterr().err
 
 
 def test_cli_sniff_sans_droits(tmp_path, modele, monkeypatch, capsys):
