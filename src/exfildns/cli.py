@@ -13,6 +13,7 @@ from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, lire_liste_bl
 from exfildns.dataset import load_dataset
 from exfildns.evaluation import SEUIL, evaluer
 from exfildns.features import FEATURES, features_dataframe
+from exfildns.journal import lots_journal, requete_journal
 from exfildns.model import (
     CAPTURES_TEST,
     charger,
@@ -21,7 +22,7 @@ from exfildns.model import (
     sauvegarder,
     split_par_capture,
 )
-from exfildns.pcap import read_dns_queries
+from exfildns.pcap import read_dns_queries, requete_dns
 from exfildns.sniff import lots_reseau, ouvrir_base, surveiller
 
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
@@ -124,6 +125,13 @@ def commande_sniff(args) -> int:
         )
         return 2
     modele = charger(args.modele)
+    if args.journal:  # journal du résolveur : aucun droit réseau nécessaire
+        try:
+            lots = lots_journal(args.journal)
+        except OSError as erreur:  # fichier absent ou illisible
+            print(f"Journal illisible : {erreur}", file=sys.stderr)
+            return 2
+        return _surveiller(args, modele, lots, requete_journal, f"le journal {args.journal}")
     try:
         lots = lots_reseau(args.interface)
     except PermissionError:
@@ -136,15 +144,20 @@ def commande_sniff(args) -> int:
     except (ValueError, Scapy_Exception) as erreur:  # interface inconnue, libpcap absent
         print(f"Capture impossible : {erreur}", file=sys.stderr)
         return 2
+    interface = args.interface or "l'interface par défaut"
+    return _surveiller(args, modele, lots, requete_dns, interface)
+
+
+def _surveiller(args, modele, lots, decoder, source: str) -> int:
+    """Partie commune de `sniff` (réseau ou journal) : note et enregistre jusqu'à Ctrl+C."""
     # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
     signal.signal(signal.SIGTERM, signal.default_int_handler)
-    interface = args.interface or "l'interface par défaut"
-    print(f"Capture DNS sur {interface}, requêtes enregistrées dans {args.base}.")
+    print(f"Capture DNS sur {source}, requêtes enregistrées dans {args.base}.")
     print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.", flush=True)
     connexion = ouvrir_base(args.base)
     try:
         analysees, suspectes = surveiller(
-            lots, modele, connexion, args.seuil, retention_jours=args.retention
+            lots, modele, connexion, args.seuil, retention_jours=args.retention, decoder=decoder
         )
     finally:
         connexion.close()
@@ -264,9 +277,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sniff = commandes.add_parser(
         "sniff",
-        help="détecte en direct sur une interface réseau (root ou CAP_NET_RAW)",
+        help="détecte en direct sur une interface réseau (root ou CAP_NET_RAW)"
+        " ou dans le journal d'un résolveur Unbound",
     )
-    sniff.add_argument("-i", "--interface", help="interface à écouter (défaut : celle de scapy)")
+    source = sniff.add_mutually_exclusive_group()
+    source.add_argument("-i", "--interface", help="interface à écouter (défaut : celle de scapy)")
+    source.add_argument(
+        "--journal",
+        metavar="FICHIER",
+        help="suit le journal d'un résolveur Unbound (log-queries) au lieu du réseau",
+    )
     sniff.add_argument("-m", "--modele", default=MODELE_PAR_DEFAUT, help="fichier .keras")
     sniff.add_argument("--seuil", type=float, default=SEUIL, help="seuil d'affichage")
     sniff.add_argument(

@@ -60,9 +60,13 @@ def migrer(connexion: sqlite3.Connection) -> None:
             connexion.execute("ALTER TABLE requetes ADD COLUMN taille INTEGER")
 
 
-def noter(modele, paquets: Iterable) -> pd.DataFrame:
-    """Requêtes DNS contenues dans `paquets`, avec leur probabilité d'exfiltration (`score`)."""
-    requetes = en_dataframe([r for p in paquets if (r := requete_dns(p)) is not None])
+def noter(modele, paquets: Iterable, decoder: Callable = requete_dns) -> pd.DataFrame:
+    """Requêtes DNS contenues dans `paquets`, avec leur probabilité d'exfiltration (`score`).
+
+    `decoder` transforme un élément en tuple de requête (ou `None`) : paquet réseau par défaut,
+    ligne de journal de résolveur avec `journal.requete_journal`.
+    """
+    requetes = en_dataframe([r for p in paquets if (r := decoder(p)) is not None])
     if requetes.empty:
         requetes["score"] = pd.Series(dtype=float)
     else:
@@ -108,6 +112,7 @@ def surveiller(
     afficher: Callable[[str], None] = lambda ligne: print(ligne, flush=True),
     retention_jours: float | None = None,
     horloge: Callable[[], float] = time.time,
+    decoder: Callable = requete_dns,
 ) -> tuple[int, int]:
     """Note et enregistre chaque lot de paquets ; affiche les requêtes suspectes au fil de l'eau.
 
@@ -124,7 +129,7 @@ def surveiller(
             if retention_jours is not None and (maintenant := horloge()) >= prochaine_purge:
                 purger(connexion, retention_jours, maintenant)
                 prochaine_purge = maintenant + PERIODE_PURGE
-            requetes = noter(modele, paquets)
+            requetes = noter(modele, paquets, decoder)
             if requetes.empty:
                 continue
             enregistrer(connexion, requetes)
