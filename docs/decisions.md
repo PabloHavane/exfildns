@@ -167,3 +167,12 @@ capture, alertes, dashboard, Docker) et v2.1 (interface SOC) ont été développ
 `v2.0.0` annoncerait une version sans l'interface SOC alors qu'elle est livrée ; le numéro suit
 donc le contenu réel. Une version **majeure** (2) car la v1 n'était qu'un modèle hors ligne
 (`train`, `evaluate`, `scan`) : la v2 ajoute la capture en direct, le dashboard et le déploiement.
+
+## 2026-11-26 — Liste blanche modifiable depuis le dashboard (#92)
+
+Les domaines ajoutés par l'analyste vont dans `statuts.db`, table `liste_blanche` : c'est déjà la
+seule base écrite par le dashboard, donc pas de nouveau volume ni de nouvelle option, et
+`detections.db` reste en lecture seule. La liste par défaut (CDN) reste dans le code, toujours
+appliquée et non modifiable depuis l'interface : un retrait par erreur ferait réapparaître des
+faux positifs connus. Les saisies sont validées (forme d'un nom de domaine, au moins deux labels)
+pour qu'un « com » ne blanchisse pas tout un TLD. `scan --liste-blanche` (fichier) est inchangé.

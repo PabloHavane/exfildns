@@ -162,8 +162,11 @@ Le modèle est celui de `-m` (relancer le dashboard après un réentraînement :
 mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
 Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il peut tourner
-pendant la capture. Il n'écrit que dans sa propre base, celle des statuts d'alertes
-(`--statuts`, par défaut `statuts.db` dans le dossier de `--base`). Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
+pendant la capture. Il n'écrit que dans sa propre base, celle des statuts d'alertes et de la
+liste blanche (`--statuts`, par défaut `statuts.db` dans le dossier de `--base`). Le panneau
+**Liste blanche** de la barre latérale ajoute ou retire un domaine (et ses sous-domaines) qui ne
+doit plus alerter, en direct comme pour une capture importée ; la liste par défaut (CDN) reste
+toujours appliquée. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
 
 ## Déploiement avec Docker
@@ -218,7 +221,7 @@ uv run ruff check . && uv run ruff format --check .
 Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (features d'un nom
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
-(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `dashboard.py` (Streamlit), `synthese.py` (chiffres
+(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `dashboard.py` (Streamlit), `synthese.py` (chiffres
 clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 
