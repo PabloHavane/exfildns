@@ -334,7 +334,7 @@ def test_cli_sniff_retention(tmp_path, modele, monkeypatch):
     base = tmp_path / "detections.db"
     retentions = []
 
-    def faux_surveiller(lots, modele, connexion, seuil, retention_jours=None):
+    def faux_surveiller(lots, modele, connexion, seuil, retention_jours=None, decoder=None):
         retentions.append(retention_jours)
         return 0, 0
 
