@@ -26,7 +26,13 @@ from pathlib import Path
 import pandas as pd
 
 from exfildns import SEUIL, __version__, detail, liste_blanche, statuts, synthese
-from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
+from exfildns.alertes import (
+    LISTE_BLANCHE,
+    MIN_REQUETES,
+    alertes,
+    autorises,
+    domaines_parents,
+)
 
 BASE_PAR_DEFAUT = "detections.db"
 STATUTS = "statuts.db"  # nom par défaut de la base des statuts, à côté de la base des détections
@@ -176,12 +182,8 @@ def instants_alertes(
     suspectes = requetes[requetes["score"] >= seuil]
     if suspectes.empty:  # une liste vide sélectionnerait des colonnes, pas des lignes
         return pd.DataFrame(columns=["domaine", "instant"])
-    suspectes = suspectes[[not est_autorise(q, liste_blanche) for q in suspectes["qname"]]]
-    domaines = [
-        domaine_parent(q, pd.isna(t))
-        for q, t in zip(suspectes["qname"], suspectes["qtype"], strict=True)
-    ]
-    suspectes = suspectes.assign(domaine=domaines).sort_values("timestamp")
+    suspectes = suspectes[~autorises(suspectes["qname"], liste_blanche)]
+    suspectes = suspectes.assign(domaine=domaines_parents(suspectes)).sort_values("timestamp")
     rang = suspectes.groupby("domaine").cumcount()  # 0 pour la 1re requête suspecte du domaine
     levees = suspectes[rang == min_requetes - 1]
     return pd.DataFrame(
@@ -579,6 +581,10 @@ def afficher_resultats(
     def resume_de(lues: pd.DataFrame) -> pd.DataFrame:
         return statuts.appliquer(alertes(lues, seuil, min_requetes, liste), connus)
 
+    # domaine parent calculé une seule fois, réutilisé par toutes les vues (#112)
+    requetes = requetes.assign(domaine=domaines_parents(requetes))
+    if precedentes is not None:
+        precedentes = precedentes.assign(domaine=domaines_parents(precedentes))
     resume = resume_de(requetes)
     suspectes = requetes[requetes["score"] >= seuil]
     chiffres = synthese.indicateurs(requetes, seuil, statuts.ouvertes(resume))

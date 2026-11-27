@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from exfildns.alertes import domaine_parent
+from exfildns.alertes import domaines_parents
 
 QTYPES_TUNNEL = (10, 16)  # NULL et TXT : réponses longues, prisées des outils de tunneling
 SCORE_ELEVE = 0.9  # score max à partir duquel une alerte est jugée nette
@@ -31,10 +31,7 @@ def indicateurs(requetes: pd.DataFrame, seuil: float, resume: pd.DataFrame) -> d
     """
     n = len(requetes)
     suspectes = int((requetes["score"] >= seuil).sum())
-    domaines = {
-        domaine_parent(q, pd.isna(t))
-        for q, t in zip(requetes["qname"], requetes["qtype"], strict=True)
-    }
+    domaines = set(domaines_parents(requetes))
     return {
         "analysees": n,
         "suspectes": suspectes,
@@ -147,13 +144,9 @@ def top_domaines(
     """Domaines parents les plus interrogés (`tri="volume"`) ou les plus suspects
     (`tri="score"`, score moyen décroissant). Colonnes : domaine, requêtes, suspectes,
     score moyen."""
-    domaines = [
-        domaine_parent(q, pd.isna(t))
-        for q, t in zip(requetes["qname"], requetes["qtype"], strict=True)
-    ]
-    groupes = requetes.assign(domaine=domaines, suspecte=requetes["score"] >= seuil).groupby(
-        "domaine"
-    )
+    groupes = requetes.assign(
+        domaine=domaines_parents(requetes), suspecte=requetes["score"] >= seuil
+    ).groupby("domaine")
     top = pd.DataFrame(
         {
             "requêtes": groupes.size(),
