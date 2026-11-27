@@ -6,19 +6,93 @@ d'exfiltration avec un réseau de neurones TensorFlow, et liste les requêtes su
 
 Projet ENSIBS — module IA pour la cybersécurité. Entraîné sur le dataset CIC-Bell-DNS-EXF-2021.
 
-## Installation
+## Démarrage rapide avec Docker (recommandé)
 
-Prérequis : Python 3.12 (installé automatiquement par uv) et [uv](https://docs.astral.sh/uv/).
+**Prérequis** : une machine **Linux** (la capture utilise le réseau de l'hôte), Docker Engine ≥ 24
+avec le plugin Compose (`docker compose version` doit répondre), 3 à 4 Go d'espace disque.
+Le modèle entraîné est fourni dans l'archive : `models/exfildns.keras`.
+
+```bash
+cd exfildns                       # se placer dans le dossier de l'archive décompressée
+docker compose up -d --build      # premier lancement : quelques minutes (téléchargement de TensorFlow)
+docker compose ps                 # deux services « Up », le dashboard « healthy » après ~30 s
+```
+
+Ouvrir **<http://localhost:8501>** : c'est le dashboard. Il affiche en direct chaque requête
+DNS émise par la machine, notée par le modèle (bleu : bénigne, rouge : suspecte).
+
+**Vérifier en 10 secondes** que la détection fonctionne (`dig` : paquet `dnsutils` ou
+`bind-utils`) : la boucle envoie 10 requêtes de la forme d'un tunnel vers `192.0.2.53`,
+adresse réservée à la documentation, donc rien ne sort vraiment.
+
+```bash
+for i in $(seq 1 10); do
+  dig +short +tries=1 +time=1 @192.0.2.53 \
+    "$i.$(head -c 30 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=').exfil-test.example"
+done
+```
+
+Les erreurs de `dig` (« no servers could be reached ») sont normales : aucun serveur ne répond.
+Une alerte vers `exfil-test.example` apparaît dans la **file d'alertes** du dashboard en moins
+de 5 secondes. Sans navigateur, les requêtes suspectes s'affichent aussi dans le terminal,
+avec leur score : `docker compose logs sniff | grep exfil-test`. Les avertissements de
+TensorFlow au début de ces logs (oneDNN, absl) sont sans importance.
+
+Arrêter : `docker compose down` (ajouter `-v` pour effacer les détections).
+
+Rien n'apparaît ? `docker compose logs sniff` affiche l'interface surveillée et les erreurs ;
+voir le [dépannage](docs/deploiement.md#6-dépannage).
+
+## Tester une vraie exfiltration DNS : le labo
+
+Le labo rejoue une attaque réelle avec l'outil de tunneling DNS **iodine**, sur un réseau
+Docker isolé (aucun accès à Internet, domaine fictif `tunnel.labo`) :
+
+- `victime` : poste compromis qui envoie 200 Ko de données par le tunnel DNS, toutes les 30 s ;
+- `attaquant` : serveur iodine qui reçoit les données ;
+- `sniff` : exfildns, qui écoute le trafic DNS de l'attaquant ;
+- `dashboard` : le dashboard du labo, sur le port **8502**.
+
+Il peut tourner en même temps que le déploiement ci-dessus (ports et volumes distincts).
+
+```bash
+docker compose -f compose.labo.yaml up -d --build
+docker compose -f compose.labo.yaml logs -f victime   # attendre « Connection setup complete » (~15 s), puis Ctrl+C
+```
+
+Ouvrir **<http://localhost:8502>** et choisir la période « 5 dernières minutes » dans la
+barre latérale. En moins de 30 secondes :
+
+1. le graphique d'activité DNS se remplit de requêtes **rouges** (suspectes) ;
+2. la **file d'alertes** affiche une alerte de sévérité haute vers `tunnel.labo`, depuis le
+   poste `172.30.53.20` (la victime) ;
+3. l'onglet **Requêtes** liste les requêtes ; un clic sur l'une d'elles montre le sous-domaine
+   encodé, ses features comparées aux requêtes bénignes et un essai de décodage.
+
+Dans le terminal : `docker compose -f compose.labo.yaml logs sniff | grep tunnel.labo` montre
+les requêtes suspectes avec leur score (environ 800 par envoi de 200 Ko).
+
+Arrêter et effacer le labo : `docker compose -f compose.labo.yaml down -v` (à lancer aussi
+avant de relancer le labo, pour repartir d'une base vide).
+
+Le labo a besoin de `/dev/net/tun` sur l'hôte (présent sur toute distribution Linux courante).
+Détails et résultats mesurés : [docs/deploiement.md](docs/deploiement.md#mini-labo--une-vraie-exfiltration-dns-sur-un-réseau-isolé).
+
+**Sans réseau ni labo**, l'onglet **Analyser une capture** du dashboard accepte un fichier
+`.pcap` et l'analyse de la même façon.
+
+## Utilisation sans Docker
+
+Prérequis : [uv](https://docs.astral.sh/uv/) (il installe lui-même Python 3.12) et, pour la
+capture en direct, `libpcap` (`libpcap0.8` sous Debian/Ubuntu).
 
 ```bash
 pip install uv          # si uv n'est pas installé
-git clone https://github.com/PabloHavane/exfildns.git
-cd exfildns
 uv sync                 # crée l'environnement et installe les dépendances
 uv run exfildns --help
 ```
 
-## Données
+### Données (seulement pour réentraîner le modèle)
 
 1. Télécharger [CIC-Bell-DNS-EXF-2021](https://www.unb.ca/cic/datasets/dns-exf-2021.html)
    (formulaire du CIC), partie **PCAP heavy**.
@@ -34,7 +108,6 @@ data/
 > Mahdavifar, S., et al. *Lightweight Hybrid Detection of Data Exfiltration using DNS based on
 > Machine Learning*. ICCNS 2021.
 
-## Utilisation
 
 ### Entraîner
 
@@ -104,11 +177,11 @@ uv run exfildns scan capture.pcap > rapport.txt
 ### Détecter en direct sur le réseau
 
 ```bash
-sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras] [--retention 30]
+sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras] [--retention 3]
 ```
 
-`--retention 30` supprime les requêtes de plus de 30 jours, au démarrage puis toutes les heures
-(par défaut tout est gardé ; 30 jours dans le déploiement Docker).
+`--retention 3` supprime les requêtes de plus de 3 jours, au démarrage puis toutes les heures
+(par défaut tout est gardé ; 3 jours dans le déploiement Docker).
 
 ```
 Capture DNS sur wlan0, requêtes enregistrées dans detections.db.
@@ -195,25 +268,6 @@ Relit les bases toutes les 30 s (`--intervalle`) et envoie en POST JSON chaque a
 sévérité **haute** ouverte sur la dernière heure (`--fenetre 60`), une seule fois par alerte.
 Mêmes alertes que le dashboard : liste blanche et statuts (faux positif, close) sont respectés.
 Le champ `text` du message est affiché par Slack, Mattermost ou Rocket.Chat.
-
-## Déploiement avec Docker
-
-```bash
-cp .env.example .env        # facultatif : interface choisie automatiquement (route par défaut)
-docker compose up -d --build
-# dashboard : http://localhost:8501
-```
-
-Deux services, une seule image : `sniff` (capture sur le réseau de l'hôte) et `dashboard`.
-Le modèle `models/exfildns.keras` doit exister (monté en lecture seule) ; les détections sont
-dans le volume `detections`, les statuts d'alertes dans le volume `statuts` (seul volume où
-le dashboard écrit). Les deux services tournent **sans root**, système de fichiers en
-lecture seule ; seule la capture a la capacité `NET_RAW`, et le dashboard n'est publié que sur
-`127.0.0.1`. `docker compose stop` arrête proprement la capture et le dashboard.
-Si la capture redémarre en boucle (modèle absent, interface inconnue, droits) : `docker compose
-logs sniff` donne la cause. Pour voir une vraie exfiltration DNS (outil iodine) sur un réseau
-Docker isolé : `docker compose -f compose.labo.yaml up --build`, dashboard sur le port 8502.
-Guide complet : [docs/deploiement.md](docs/deploiement.md).
 
 ## Notebook de méthodologie
 
