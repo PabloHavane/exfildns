@@ -701,7 +701,7 @@ def requetes_figees(st, base: str, periode: str, seuil: float) -> pd.DataFrame:
     return tableau.assign(verdict=detail.verdicts(tableau["score"], seuil))
 
 
-def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame) -> None:
+def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame, prefixe: str = "") -> None:
     """Panneau de détail d'une requête : nom découpé, features, séquence, décodage, export."""
     tronque = pd.isna(ligne["qtype"])
     st.subheader("Détail de la requête")
@@ -787,6 +787,7 @@ def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame) -> None:
         file_name=f"requete-{ligne['id']}.json",
         mime="application/json",
         on_click="ignore",
+        key=f"{prefixe}export_requete",
     )
     droite.download_button(
         "Exporter la séquence (CSV)",
@@ -794,6 +795,7 @@ def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame) -> None:
         file_name=f"sequence-{ligne['id']}.csv",
         mime="text/csv",
         on_click="ignore",
+        key=f"{prefixe}export_sequence",
     )
 
 
@@ -807,22 +809,31 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
     if tableau.empty:
         st.info("Aucune requête DNS sur la période.")
         return
+    explorer_requetes(st, tableau, seuil, st.session_state["requetes_version"])
 
+
+def explorer_requetes(st, tableau: pd.DataFrame, seuil: float, version, prefixe: str = "") -> None:
+    """Tableau filtrable de toutes les requêtes (bénignes comprises), export, détail d'une ligne.
+
+    Partagé par l'onglet « Requêtes » et l'analyse d'une capture. `tableau` vient de
+    `detail.tableau_detaille`, avec des verdicts au seuil `seuil`. `version` change quand les
+    données changent (efface la sélection). `prefixe` distingue les clés des deux onglets.
+    """
     colonnes = st.columns([2, 2, 2, 2, 3])
     postes = colonnes[0].multiselect(
-        "Poste", sorted(tableau["src"].unique()), key="f_postes", placeholder="Tous"
+        "Poste", sorted(tableau["src"].unique()), key=f"{prefixe}f_postes", placeholder="Tous"
     )
     domaines = colonnes[1].multiselect(
         "Domaine parent",
         tableau["domaine"].value_counts().index.tolist(),  # les plus fréquents d'abord
-        key="f_domaines",
+        key=f"{prefixe}f_domaines",
         placeholder="Tous",
     )
     verdicts = colonnes[2].multiselect(
-        "Verdict", detail.VERDICTS, key="f_verdicts", placeholder="Tous"
+        "Verdict", detail.VERDICTS, key=f"{prefixe}f_verdicts", placeholder="Tous"
     )
-    score_min = colonnes[3].slider("Score minimum", 0.0, 1.0, 0.0, 0.05, key="f_score")
-    texte = colonnes[4].text_input("Rechercher dans le nom", key="f_texte")
+    score_min = colonnes[3].slider("Score minimum", 0.0, 1.0, 0.0, 0.05, key=f"{prefixe}f_score")
+    texte = colonnes[4].text_input("Rechercher dans le nom", key=f"{prefixe}f_texte")
     filtrees = detail.filtrer(tableau, postes, domaines, verdicts, score_min, texte)
     vue = filtrees.sort_values("timestamp", ascending=False).head(LIGNES_MAX)
 
@@ -832,7 +843,12 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
         + (f" (les {LIGNES_MAX} plus récentes)" if len(filtrees) > LIGNES_MAX else "")
     )
     milieu.download_button(
-        "CSV", detail.exporter(vue, "csv"), "requetes.csv", "text/csv", on_click="ignore"
+        "CSV",
+        detail.exporter(vue, "csv"),
+        "requetes.csv",
+        "text/csv",
+        on_click="ignore",
+        key=f"{prefixe}export_csv",
     )
     droite.download_button(
         "JSON",
@@ -840,15 +856,15 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
         "requetes.json",
         "application/json",
         on_click="ignore",
+        key=f"{prefixe}export_json",
     )
     # une clé par jeu de filtres et par lecture de la base : Streamlit garde la sélection (une
     # position) quand les données changent ; changer de clé l'efface au lieu de la reporter sur
     # la ligne qui occupe désormais la même position
-    version = st.session_state["requetes_version"]
     filtres = repr((postes, domaines, verdicts, score_min, texte, seuil, version))
     selection = st.dataframe(
         tableau_affiche(vue),
-        key=f"table_requetes_{zlib.crc32(filtres.encode())}",
+        key=f"{prefixe}table_requetes_{zlib.crc32(filtres.encode())}",
         on_select="rerun",
         selection_mode="single-row",
         hide_index=True,
@@ -874,7 +890,7 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
     if not lignes:
         st.caption("Sélectionner une ligne pour afficher son détail.")
         return
-    afficher_detail(st, vue.iloc[lignes[0]], tableau)
+    afficher_detail(st, vue.iloc[lignes[0]], tableau, prefixe)
 
 
 def capture_importee(
@@ -901,6 +917,15 @@ def capture_importee(
         return
     st.caption(f"Capture : {fichier.name}.")
     afficher_resultats(st, requetes, seuil, min_requetes, onglet="capture", liste=liste)
+    if requetes.empty:
+        return
+    st.subheader("Toutes les requêtes de la capture")
+    # id : position dans la capture (pas de rowid hors base), sert au détail et à l'export
+    detaille = st.cache_data(
+        detail.tableau_detaille, show_spinner=False, max_entries=CAPTURES_EN_CACHE
+    )
+    tableau = detaille(requetes.assign(id=range(1, len(requetes) + 1)), seuil)
+    explorer_requetes(st, tableau, seuil, zlib.crc32(fichier.getvalue()), prefixe="capture_")
 
 
 def panneau_liste_blanche(st, chemin: str) -> list[str]:
