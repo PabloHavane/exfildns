@@ -159,12 +159,15 @@ Ouvre <http://localhost:8501>, une vue pensée pour un analyste SOC :
 Seuil, nombre de requêtes pour une alerte et période se règlent dans la barre latérale ; la
 supervision se rafraîchit toutes les 5 secondes (interrupteur), l'onglet Requêtes seulement
 sur le bouton « Actualiser » ou un changement de période, pour ne pas perdre la ligne
-sélectionnée. La sévérité d'une alerte
+sélectionnée. Chaque onglet se recalcule seul : un clic dans un tableau ne relance pas la
+supervision. La sévérité d'une alerte
 (haute, moyenne, basse) aide au tri sans changer quelles alertes sont levées.
 
 L'onglet **Analyser une capture** accepte un fichier `.pcap` / `.pcapng` et l'analyse comme
-`exfildns scan`, avec les vues de la supervision (sans variations ni onglet Requêtes ; utile
-sans accès au réseau, ou pour rejouer une capture).
+`exfildns scan`, avec les vues de la supervision (sans variations ni statut d'alerte) suivies
+du tableau de **toutes** ses requêtes, bénignes comprises, avec les mêmes filtres, détail et
+exports que l'onglet Requêtes (identifiant d'une requête : sa position dans la capture). Utile
+sans accès au réseau, ou pour rejouer une capture.
 Le modèle est celui de `-m` (relancer le dashboard après un réentraînement : les analyses sont
 mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
@@ -246,7 +249,7 @@ Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (fea
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
 (regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `notification.py` (webhook des alertes hautes), `journal.py` (journal du résolveur Unbound), `dashboard.py` (Streamlit), `synthese.py` (chiffres
-clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
+clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes et capture importée : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 
 ## Licence

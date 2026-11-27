@@ -233,8 +233,9 @@ docker compose -f compose.labo.yaml down -v         # tout arrêter et vider les
 
 Si le réseau de la salle empêche la démonstration en direct, l'onglet **Analyser une
 capture** du dashboard accepte un fichier `.pcap` (jusqu'à 100 Mo) et affiche les vues de la
-supervision (l'étape « Enquêter », propre à la base de `sniff`, n'est pas disponible ; le
-bandeau reste celui de la capture en direct) :
+supervision, puis le tableau de toutes ses requêtes (bénignes comprises) où l'étape
+« Enquêter » se fait comme dans l'onglet Requêtes ; le bandeau reste celui de la capture en
+direct :
 par exemple `data/Attacks/heavy_text.pcap` du dataset (1 alerte, 26 907 requêtes suspectes sur
 27 142) puis `data/Benign/benign_heavy_2.pcap` (aucune alerte). Les paquets du dataset étant
 tronqués, l'alerte porte sur « (nom incomplet dans la capture) » et non sur un nom de domaine.
@@ -263,6 +264,10 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
   alertes limitent les faux positifs.
 - **Analyse requête par requête** : le volume et le rythme des requêtes ne servent qu'à
   regrouper les alertes, pas à détecter (pas de features *stateful*).
+- **Volume affiché** : la supervision relit et recalcule toute la période à chaque
+  rafraîchissement (environ 1 s pour 100 000 requêtes, #112), ce qui garde les chiffres exacts.
+  Le mini-labo produit des dizaines de requêtes par seconde : choisir une période courte, ou
+  repartir d'une base vide avec `docker compose -f compose.labo.yaml down -v`.
 - **DNS chiffré** (DNS over HTTPS / TLS) : invisible pour la capture, qui ne voit que le DNS
   en clair sur le port 53.
 - **Une seule machine** : la capture voit le trafic de la machine qui l'héberge (ou d'un port

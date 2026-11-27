@@ -642,6 +642,94 @@ def test_app_capture_reglages_appliques(tmp_path, modele, monkeypatch):
     assert {m.label: m.value for m in at.tabs[2].metric}["Alertes ouvertes"] == "0"
 
 
+def capture_mixte(tmp_path, modele, monkeypatch, graine=16):
+    """Capture déposée : 10 requêtes bénignes puis 6 requêtes d'exfiltration."""
+    contenu = octets_pcap(
+        tmp_path,
+        [requete(q) for q in noms_benins(10, graine=graine)]
+        + [requete(q, dst="10.6.6.6") for q in noms_exfil(6, graine=graine)],
+    )
+    return deposer(app_capture(tmp_path, modele, monkeypatch), "tunnel.pcap", contenu)
+
+
+def tableau_capture(at):
+    """Tableau « Toutes les requêtes de la capture » (le dernier de l'onglet)."""
+    return at.tabs[2].dataframe[-1].value
+
+
+def test_app_capture_toutes_les_requetes_benignes_comprises(tmp_path, modele, monkeypatch):
+    at = capture_mixte(tmp_path, modele, monkeypatch)
+
+    assert not at.exception
+    onglet = at.tabs[2]
+    assert "Toutes les requêtes de la capture" in [s.value for s in onglet.subheader]
+    tableau = tableau_capture(at)
+    assert len(tableau) == 16
+    assert set(tableau["verdict"]) == {"bénigne", "suspecte"}
+    assert "Sélectionner une ligne" in onglet.caption[-1].value
+
+
+def test_app_capture_filtres_propres_a_l_onglet(tmp_path, modele, monkeypatch):
+    at = capture_mixte(tmp_path, modele, monkeypatch)
+
+    at.multiselect(key="capture_f_verdicts").set_value(["bénigne"]).run()
+    assert not at.exception
+    assert len(tableau_capture(at)) == 10
+    assert set(tableau_capture(at)["verdict"]) == {"bénigne"}
+
+    at.text_input(key="capture_f_texte").set_value("ATTAQUANT").run()
+    assert tableau_capture(at).empty
+
+
+def test_app_capture_seuil_change_le_verdict(tmp_path, modele, monkeypatch):
+    at = capture_mixte(tmp_path, modele, monkeypatch)
+
+    at.slider(key="seuil").set_value(0.0).run()  # score >= 0 : tout est suspect
+
+    assert not at.exception
+    assert set(tableau_capture(at)["verdict"]) == {"suspecte"}
+
+
+def test_app_capture_sans_dns_pas_de_tableau(tmp_path, modele, monkeypatch):
+    contenu = octets_pcap(tmp_path, [Ether() / IP() / TCP(dport=443)])
+    at = deposer(app_capture(tmp_path, modele, monkeypatch), "web.pcap", contenu)
+
+    assert not at.exception
+    assert "Toutes les requêtes de la capture" not in [s.value for s in at.tabs[2].subheader]
+    assert not at.tabs[2].dataframe
+
+
+def detail_requete_de_capture(chemin_pcap, chemin_modele):
+    """Script Streamlit : détail de la 1re requête d'une capture, construit comme l'onglet."""
+    from pathlib import Path
+
+    import streamlit as st
+
+    from exfildns import detail
+    from exfildns.dashboard import afficher_detail, analyser_capture
+
+    requetes = analyser_capture(Path(chemin_pcap).read_bytes(), chemin_modele)
+    tableau = detail.tableau_detaille(requetes.assign(id=range(1, len(requetes) + 1)), 0.5)
+    afficher_detail(st, tableau.iloc[0], tableau, prefixe="capture_")
+
+
+def test_afficher_detail_d_une_requete_de_capture(tmp_path, modele):
+    # une capture n'a pas de rowid : l'identifiant est la position (détail, séquence, export)
+    chemin = tmp_path / "tunnel.pcap"
+    chemin.write_bytes(
+        octets_pcap(tmp_path, [requete(q, dst="10.6.6.6") for q in noms_exfil(3, graine=17)])
+    )
+
+    at = AppTest.from_function(
+        detail_requete_de_capture, args=(str(chemin), str(modele)), default_timeout=60
+    ).run()
+
+    assert not at.exception
+    assert len(at.dataframe[1].value) == 3  # séquence : les 3 requêtes vers le même domaine
+    boutons = at.get("download_button")
+    assert [b.proto.id for b in boutons] and all("capture_export_" in b.proto.id for b in boutons)
+
+
 def test_dashboard_et_alertes_sans_tensorflow():
     # le dashboard démarre vite : il ne charge TensorFlow que pour analyser une capture (#52)
     code = "import sys, exfildns.dashboard, exfildns.alertes; print('tensorflow' in sys.modules)"
@@ -1019,6 +1107,30 @@ def test_graphique_qtypes():
 
     assert spec["mark"]["type"] == "bar"
     assert spec["encoding"]["y"]["sort"] == "-x"
+
+
+def test_app_chaque_onglet_dans_un_fragment(base_demo, monkeypatch):
+    """Un clic dans un onglet ne relance que lui (#114) : chaque onglet est un fragment.
+
+    AppTest relance toujours toute la page ; on vérifie donc la structure : les fonctions
+    qui rendent le bandeau et les trois onglets passent par `st.fragment`.
+    """
+    import streamlit
+
+    vrai_fragment = streamlit.fragment
+    fragments = []
+
+    def espion(func=None, **options):
+        if func is None:  # forme @st.fragment(run_every=...)
+            return lambda f: espion(f, **options)
+        fragments.append(func.__name__)
+        return vrai_fragment(func, **options)
+
+    monkeypatch.setattr(streamlit, "fragment", espion)
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert set(fragments) == {"etat", "vue_directe", "vue_tableau", "vue_capture"}
 
 
 def test_app_supervision_et_capture_en_meme_temps(base_demo, tmp_path, modele, monkeypatch):
