@@ -44,7 +44,8 @@ def domaine_parent(qname: str, tronque: bool = False) -> str:
     """Deux derniers labels du nom (`exemple.com`), ou un marqueur si le nom est coupé."""
     if tronque:
         return NOM_INCOMPLET
-    return ".".join(qname.rstrip(".").split(".")[-2:]) or "(racine)"
+    # rsplit limité : ne découpe que la fin du nom (les noms de tunnel sont longs)
+    return ".".join(qname.rstrip(".").rsplit(".", 2)[-2:]) or "(racine)"
 
 
 def lire_liste_blanche(chemin: str | Path) -> list[str]:
@@ -58,6 +59,29 @@ def est_autorise(qname: str, liste_blanche: Iterable[str]) -> bool:
     nom = qname.rstrip(".").lower()
     domaines = (d.rstrip(".").lower() for d in liste_blanche)
     return any(nom == d or nom.endswith("." + d) for d in domaines)
+
+
+def domaines_parents(requetes: pd.DataFrame) -> pd.Series:
+    """`domaine_parent` de chaque requête. Un `qtype` manquant signale un nom coupé, testé
+    d'un bloc (un `pd.isna` par requête coûte cher sur des dizaines de milliers de requêtes).
+
+    Si `requetes` a déjà une colonne `domaine` (calculée ici), elle est réutilisée : le dashboard
+    la calcule une fois par rafraîchissement au lieu d'une fois par vue.
+    """
+    if "domaine" in requetes:
+        return requetes["domaine"]
+    noms = pd.Series([domaine_parent(q) for q in requetes["qname"]], index=requetes.index)
+    return noms.where(requetes["qtype"].notna(), NOM_INCOMPLET)
+
+
+def autorises(qnames: pd.Series, liste_blanche: Iterable[str]) -> pd.Series:
+    """`est_autorise` de chaque nom, calculé d'un bloc (pandas) : une passe par domaine de la
+    liste blanche au lieu d'une boucle Python par requête."""
+    noms = qnames.astype(str).str.rstrip(".").str.lower()
+    masque = pd.Series(False, index=qnames.index)
+    for domaine in {d.rstrip(".").lower() for d in liste_blanche}:
+        masque |= (noms == domaine) | noms.str.endswith("." + domaine)
+    return masque
 
 
 def alertes(
@@ -76,14 +100,10 @@ def alertes(
     """
     liste_blanche = list(liste_blanche)
     suspectes = requetes[requetes["score"] >= seuil]
-    suspectes = suspectes[[not est_autorise(q, liste_blanche) for q in suspectes["qname"]]]
+    suspectes = suspectes[~autorises(suspectes["qname"], liste_blanche)]
     if suspectes.empty:
         return pd.DataFrame(columns=COLONNES_ALERTES)
-    domaines = [
-        domaine_parent(q, pd.isna(t))
-        for q, t in zip(suspectes["qname"], suspectes["qtype"], strict=True)
-    ]
-    groupes = suspectes.assign(domaine=domaines).groupby("domaine")
+    groupes = suspectes.assign(domaine=domaines_parents(suspectes)).groupby("domaine")
     resume = pd.DataFrame(
         {
             "requetes_suspectes": groupes.size(),

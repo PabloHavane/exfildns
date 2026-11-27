@@ -7,7 +7,9 @@ from exfildns.alertes import (
     LISTE_BLANCHE,
     NOM_INCOMPLET,
     alertes,
+    autorises,
     domaine_parent,
+    domaines_parents,
     est_autorise,
     lire_liste_blanche,
 )
@@ -202,3 +204,60 @@ def test_scan_sans_alerte_code_0(tmp_path, modele, capsys):
 def test_scan_liste_blanche_introuvable_signalee_avant_l_analyse(tmp_path, modele):
     with pytest.raises(FileNotFoundError):
         main(["scan", str(tmp_path / "absente.pcap"), "--liste-blanche", str(tmp_path / "x.txt")])
+
+
+# --- versions « d'un bloc » (#112) : mêmes règles que les fonctions par requête ---
+
+NOMS_LIMITES = [
+    "a.b.exemple.com",
+    "exemple.com.",
+    "localhost",
+    "",
+    ".",
+    "a..b",
+    "x.Akamaiedge.NET.",
+    "akamaiedge.net",
+    "evilakamaiedge.net",
+    "0" * 63 + "." + "1" * 63 + ".tunnel.labo",
+]
+
+
+def test_domaines_parents_comme_domaine_parent():
+    tableau = requetes(*[(0.0, "10.0.0.1", q, 0.1) for q in NOMS_LIMITES])
+
+    assert domaines_parents(tableau).tolist() == [domaine_parent(q) for q in NOMS_LIMITES]
+
+
+def test_domaines_parents_nom_tronque():
+    tableau = requetes(
+        (0.0, "10.0.0.1", "abc.exemple.com", 0.9, None), (1.0, "10.0.0.1", "a.fr", 0.1)
+    )
+
+    assert domaines_parents(tableau).tolist() == [NOM_INCOMPLET, "a.fr"]
+
+
+def test_domaines_parents_garde_l_index():
+    tableau = requetes((0.0, "10.0.0.1", "a.fr", 0.1), (1.0, "10.0.0.1", "b.fr", 0.9)).iloc[[1]]
+
+    assert domaines_parents(tableau).index.tolist() == [1]
+
+
+def test_domaines_parents_reutilise_la_colonne_domaine():
+    tableau = requetes((0.0, "10.0.0.1", "a.fr", 0.1)).assign(domaine=["déjà.calculé"])
+
+    assert domaines_parents(tableau).tolist() == ["déjà.calculé"]
+
+
+def test_domaines_parents_tableau_vide():
+    assert domaines_parents(requetes()).empty
+
+
+@pytest.mark.parametrize("liste", [LISTE_BLANCHE, ["Exemple.COM."], []])
+def test_autorises_comme_est_autorise(liste):
+    noms = pd.Series(NOMS_LIMITES + ["a.exemple.com", "exemple.com", "pasexemple.com"])
+
+    assert autorises(noms, liste).tolist() == [est_autorise(q, liste) for q in noms]
+
+
+def test_autorises_vide():
+    assert autorises(pd.Series([], dtype=object), LISTE_BLANCHE).empty
