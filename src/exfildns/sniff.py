@@ -21,6 +21,9 @@ from exfildns.pcap import en_dataframe, requete_dns
 # Filtre appliqué par le noyau : seules les requêtes vers un serveur DNS remontent à Python.
 FILTRE_BPF = "udp dst port 53"
 
+# Intervalle entre deux purges des requêtes trop anciennes (option --retention), en secondes.
+PERIODE_PURGE = 3600
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS requetes (
     timestamp REAL NOT NULL,  -- secondes depuis le 1er janvier 1970 (UTC)
@@ -57,9 +60,13 @@ def migrer(connexion: sqlite3.Connection) -> None:
             connexion.execute("ALTER TABLE requetes ADD COLUMN taille INTEGER")
 
 
-def noter(modele, paquets: Iterable) -> pd.DataFrame:
-    """Requêtes DNS contenues dans `paquets`, avec leur probabilité d'exfiltration (`score`)."""
-    requetes = en_dataframe([r for p in paquets if (r := requete_dns(p)) is not None])
+def noter(modele, paquets: Iterable, decoder: Callable = requete_dns) -> pd.DataFrame:
+    """Requêtes DNS contenues dans `paquets`, avec leur probabilité d'exfiltration (`score`).
+
+    `decoder` transforme un élément en tuple de requête (ou `None`) : paquet réseau par défaut,
+    ligne de journal de résolveur avec `journal.requete_journal`.
+    """
+    requetes = en_dataframe([r for p in paquets if (r := decoder(p)) is not None])
     if requetes.empty:
         requetes["score"] = pd.Series(dtype=float)
     else:
@@ -81,6 +88,17 @@ def enregistrer(connexion: sqlite3.Connection, requetes: pd.DataFrame) -> None:
         )
 
 
+def purger(connexion: sqlite3.Connection, retention_jours: float, maintenant: float) -> int:
+    """Supprime les requêtes plus anciennes que `retention_jours` ; renvoie le nombre supprimé.
+
+    La base ne grossit plus sans limite. Le fichier SQLite garde sa taille, mais les pages
+    libérées sont réutilisées par les insertions suivantes.
+    """
+    limite = maintenant - retention_jours * 86400
+    with connexion:
+        return connexion.execute("DELETE FROM requetes WHERE timestamp < ?", (limite,)).rowcount
+
+
 def _entier(valeur) -> int | None:
     """Entier pandas (éventuellement manquant) -> entier Python ou NULL pour SQLite."""
     return None if pd.isna(valeur) else int(valeur)
@@ -92,16 +110,26 @@ def surveiller(
     connexion: sqlite3.Connection,
     seuil: float,
     afficher: Callable[[str], None] = lambda ligne: print(ligne, flush=True),
+    retention_jours: float | None = None,
+    horloge: Callable[[], float] = time.time,
+    decoder: Callable = requete_dns,
 ) -> tuple[int, int]:
     """Note et enregistre chaque lot de paquets ; affiche les requêtes suspectes au fil de l'eau.
+
+    Avec `retention_jours`, purge les requêtes trop anciennes au démarrage puis toutes les
+    `PERIODE_PURGE` secondes (pas à chaque lot : la suppression parcourt l'index).
 
     S'arrête quand les lots sont épuisés ou sur Ctrl+C (le lot en cours n'est alors pas
     enregistré) ; renvoie `(requêtes analysées, requêtes suspectes)`.
     """
     analysees = suspectes = 0
+    prochaine_purge = horloge()
     try:
         for paquets in lots:
-            requetes = noter(modele, paquets)
+            if retention_jours is not None and (maintenant := horloge()) >= prochaine_purge:
+                purger(connexion, retention_jours, maintenant)
+                prochaine_purge = maintenant + PERIODE_PURGE
+            requetes = noter(modele, paquets, decoder)
             if requetes.empty:
                 continue
             enregistrer(connexion, requetes)
@@ -113,6 +141,14 @@ def surveiller(
     except KeyboardInterrupt:
         pass
     return analysees, suspectes
+
+
+def choisir_interface(interface: str | None) -> str:
+    """Nom de l'interface à écouter : celle donnée, ou avec `None` / `auto` celle de la route
+    par défaut (choisie par scapy), par laquelle sort le trafic DNS du poste."""
+    if interface in (None, "", "auto"):
+        return str(conf.iface)
+    return interface
 
 
 def lots_reseau(interface: str | None = None, duree_lot: float = 1.0) -> Iterator[list]:

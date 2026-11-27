@@ -104,8 +104,11 @@ uv run exfildns scan capture.pcap > rapport.txt
 ### Détecter en direct sur le réseau
 
 ```bash
-sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras]
+sudo .venv/bin/exfildns sniff -i wlan0 [--base detections.db] [--seuil 0.5] [-m models/exfildns.keras] [--retention 30]
 ```
+
+`--retention 30` supprime les requêtes de plus de 30 jours, au démarrage puis toutes les heures
+(par défaut tout est gardé ; 30 jours dans le déploiement Docker).
 
 ```
 Capture DNS sur wlan0, requêtes enregistrées dans detections.db.
@@ -118,8 +121,15 @@ Capture arrêtée : 214 requêtes analysées, 1 suspectes.
 Chaque requête DNS vue sur l'interface est notée par le même modèle que `scan`, puis
 enregistrée avec son score dans la base SQLite `--base` (lue par le dashboard). Les requêtes
 suspectes s'affichent au fil de l'eau. La capture demande **root** ou la capacité
-**`CAP_NET_RAW`** ; sans `-i`, scapy choisit l'interface de la route par défaut.
+**`CAP_NET_RAW`** ; sans `-i` (ou avec `-i auto`), l'interface de la route par défaut est
+choisie et son nom s'affiche au démarrage.
 Ctrl+C ou SIGTERM (`docker stop`) arrêtent proprement la capture.
+
+**Sans port miroir** : `exfildns sniff --journal /var/log/unbound/unbound.log` suit le journal
+d'un résolveur **Unbound** au lieu du réseau, et voit ainsi les requêtes de tous les postes qui
+l'utilisent (aucun privilège réseau, seulement le droit de lire le fichier). Mêmes features,
+même base, même dashboard ; la configuration d'Unbound et les limites sont dans
+[docs/deploiement.md](docs/deploiement.md).
 
 ### Superviser avec le dashboard
 
@@ -159,14 +169,34 @@ Le modèle est celui de `-m` (relancer le dashboard après un réentraînement :
 mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
 Le dashboard lit la base de `sniff` **en lecture seule** et sans privilège : il peut tourner
-pendant la capture. Il n'écrit que dans sa propre base, celle des statuts d'alertes
-(`--statuts`, par défaut `statuts.db` dans le dossier de `--base`). Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
+pendant la capture. Il n'écrit que dans sa propre base, celle des statuts d'alertes et de la
+liste blanche (`--statuts`, par défaut `statuts.db` dans le dossier de `--base`). Le panneau
+**Liste blanche** de la barre latérale ajoute ou retire un domaine (et ses sous-domaines) qui ne
+doit plus alerter, en direct comme pour une capture importée ; la liste par défaut (CDN) reste
+toujours appliquée. Il n'écoute que sur `localhost` par défaut, car il affiche les noms demandés
 et les adresses des postes ; `--adresse 0.0.0.0` l'ouvre au réseau.
+
+Avant de l'exposer, définir `EXFILDNS_MOT_DE_PASSE` (long : la pause après un échec ne freine
+qu'une session) : le dashboard demande alors ce mot de passe
+avant d'afficher quoi que ce soit (bouton « Se déconnecter » dans la barre latérale). Le
+dashboard ne chiffre pas : hors de `localhost`, le placer derrière un proxy HTTPS pour que le
+mot de passe ne circule pas en clair.
+
+### Être notifié des alertes hautes
+
+```bash
+EXFILDNS_WEBHOOK=https://chat.exemple.fr/hooks/xxx uv run exfildns notifier [--base detections.db] [--statuts statuts.db]
+```
+
+Relit les bases toutes les 30 s (`--intervalle`) et envoie en POST JSON chaque alerte de
+sévérité **haute** ouverte sur la dernière heure (`--fenetre 60`), une seule fois par alerte.
+Mêmes alertes que le dashboard : liste blanche et statuts (faux positif, close) sont respectés.
+Le champ `text` du message est affiché par Slack, Mattermost ou Rocket.Chat.
 
 ## Déploiement avec Docker
 
 ```bash
-cp .env.example .env        # choisir l'interface : celle de `ip route get 1.1.1.1`
+cp .env.example .env        # facultatif : interface choisie automatiquement (route par défaut)
 docker compose up -d --build
 # dashboard : http://localhost:8501
 ```
@@ -215,7 +245,7 @@ uv run ruff check . && uv run ruff format --check .
 Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (features d'un nom
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
-(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `dashboard.py` (Streamlit), `synthese.py` (chiffres
+(regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `notification.py` (webhook des alertes hautes), `journal.py` (journal du résolveur Unbound), `dashboard.py` (Streamlit), `synthese.py` (chiffres
 clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 

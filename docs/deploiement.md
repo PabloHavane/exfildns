@@ -18,22 +18,27 @@ flowchart LR
         A[alertes par domaine<br/>alertes.py] --> V[vues Streamlit<br/>dashboard.py]
         Y[chiffres clés, file d'alertes<br/>synthese.py] --> V
         Q[détail d'une requête<br/>detail.py] --> V
-        V <-->|statut des alertes<br/>statuts.py| E[(statuts.db<br/>SQLite)]
+        V <-->|statut des alertes, liste blanche<br/>statuts.py, liste_blanche.py| E[(statuts.db<br/>SQLite)]
     end
     V -->|http://localhost:8501| U((Analyste))
     P[fichier .pcap] -.->|plan B : import| T
+    B -.->|lecture seule| N[exfildns notifier<br/>facultatif]
+    E -.->|lecture seule| N
+    N -.->|POST JSON, alertes hautes| W((Webhook<br/>messagerie))
 ```
 
 | Composant | Rôle | Privilèges |
 |---|---|---|
-| `exfildns sniff` | Capture les requêtes DNS d'une interface, note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) |
-| `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` | — |
+| `exfildns sniff` | Capture les requêtes DNS d'une interface (ou les lit dans le journal d'un résolveur Unbound avec `--journal`), note chacune avec le modèle, les enregistre toutes dans SQLite, affiche les suspectes | `CAP_NET_RAW` (ou root) ; avec `--journal`, lecture du fichier seulement |
+| `detections.db` | Base SQLite (mode WAL), table `requetes` : horodatage, poste, serveur DNS, nom demandé, type, score, taille de la requête (octets du message DNS) ; une base plus ancienne reçoit la colonne `taille` à l'ouverture par `sniff` ; avec `--retention N`, `sniff` supprime au démarrage puis toutes les heures les requêtes de plus de N jours | — |
 | `exfildns dashboard` | Lit la base en lecture seule, regroupe les requêtes suspectes en alertes, affiche le tableau de bord ; analyse aussi un fichier PCAP déposé | aucun |
-| `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle | — |
+| `exfildns notifier` | Facultatif : relit les deux bases toutes les 30 s, recalcule les alertes comme le dashboard (liste blanche, statuts) et POSTe en JSON chaque alerte **haute** ouverte, une seule fois par alerte (de nouveau si elle disparaît de la fenêtre d'une heure puis revient, ou au redémarrage du service) | aucun |
+| `statuts.db` | Base SQLite écrite par le dashboard seul, table `statuts_alertes` : domaine parent, statut (`nouvelle`, `en_cours`, `faux_positif`, `close`), commentaire, date du changement ; une alerte sans ligne est nouvelle. Table `liste_blanche` : domaines ajoutés depuis le dashboard, date d'ajout | — |
 
 **Une alerte** est levée quand un même domaine reçoit au moins 5 requêtes jugées suspectes
 (probabilité ≥ 0,5) : un tunnel DNS en envoie des centaines, un faux positif isolé une seule.
-Les domaines de la liste blanche (CDN, cloud) n'alertent jamais.
+Les domaines de la liste blanche (CDN, cloud, plus ceux ajoutés depuis le panneau « Liste
+blanche » du dashboard) n'alertent jamais.
 
 La capture et le dashboard sont deux processus séparés : seul le premier a besoin de droits
 réseau, et le dashboard (exposé à l'utilisateur) n'en a aucun.
@@ -50,7 +55,10 @@ réseau, et le dashboard (exposé à l'utilisateur) n'en a aucun.
 
 ### Quelle interface surveiller ?
 
-Celle par laquelle sort le trafic DNS, c'est-à-dire l'interface de la **route par défaut** :
+Celle par laquelle sort le trafic DNS, c'est-à-dire l'interface de la **route par défaut**.
+C'est le choix automatique (`EXFILDNS_INTERFACE=auto`, défaut) : `sniff` affiche au démarrage
+l'interface retenue (`docker compose logs sniff` : « Capture DNS sur wlp2s0… »). Pour vérifier
+ou forcer une autre interface :
 
 ```bash
 ip route get 1.1.1.1
@@ -65,12 +73,13 @@ rien : c'est le premier point à vérifier si aucune requête n'apparaît.
 ```bash
 git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
 cp /chemin/vers/exfildns.keras models/          # si le modèle vient d'ailleurs
-cp .env.example .env                            # puis renseigner EXFILDNS_INTERFACE
+cp .env.example .env                            # réglages facultatifs
 docker compose up -d --build                    # premier build : ~0,7 Go à télécharger
 ```
 
 Les rebuilds suivants sont rapides : les dépendances (~2,2 Go) forment une couche à part, refaite
-seulement quand `uv.lock` change ; une modification du code ne refait qu'une couche de quelques
+seulement quand les dépendances de `uv.lock` changent (pas pour un simple changement de version
+d'exfildns) ; une modification du code ne refait qu'une couche de quelques
 centaines de Ko.
 
 Ouvrir <http://localhost:8501>. Vérifier que la capture tourne :
@@ -84,9 +93,19 @@ Variables de `.env` :
 
 | Variable | Rôle | Défaut |
 |---|---|---|
-| `EXFILDNS_INTERFACE` | Interface à surveiller (obligatoire) | — |
+| `EXFILDNS_INTERFACE` | Interface à surveiller ; `auto` : celle de la route par défaut | `auto` |
+| `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `30` |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
+| `EXFILDNS_MOT_DE_PASSE` | Mot de passe demandé à l'ouverture du dashboard (vide : accès libre) | — |
+| `EXFILDNS_WEBHOOK` | Adresse du webhook du service `notifier` (profil `notification`) | — |
+
+**Notification des alertes hautes** (facultative) : renseigner `EXFILDNS_WEBHOOK` (webhook
+entrant Slack, Mattermost, Rocket.Chat… : le champ `text` du JSON s'affiche tel quel), puis
+`docker compose --profile notification up -d`. Le message contient le domaine parent, le nombre
+de requêtes suspectes, le score max et les postes ; le domaine venant du réseau, il est réduit
+aux lettres, chiffres, `.`, `_`, `:` et `-` (le reste devient `?`) pour qu'un nom forgé n'injecte ni
+lien ni mention. Un envoi raté est retenté 30 s plus tard (`docker compose logs notifier`).
 
 ### Vérifier la détection
 
@@ -114,7 +133,8 @@ Les détections restent dans le volume `detections`, les statuts d'alertes dans 
 fichiers en lecture seule. Le dashboard monte les détections en lecture seule et n'écrit que
 dans le volume `statuts`. Le dashboard n'est publié que sur `127.0.0.1` : il affiche les noms
 demandés et les adresses des postes. Pour y accéder à distance, passer par un tunnel SSH
-(`ssh -L 8501:localhost:8501 machine`) plutôt que de l'exposer.
+(`ssh -L 8501:localhost:8501 machine`) plutôt que de l'exposer ; s'il doit l'être, définir
+`EXFILDNS_MOT_DE_PASSE` (long) et placer un proxy HTTPS devant.
 
 ## 4. Déploiement sans Docker
 
@@ -138,6 +158,32 @@ cp "$(readlink -f .venv/bin/python)" .venv/bin/python-capture
 sudo setcap cap_net_raw+ep .venv/bin/python-capture
 .venv/bin/python-capture -m exfildns.cli sniff -i eth0 --base detections.db
 ```
+
+### Source alternative : le journal d'un résolveur Unbound
+
+Le capteur réseau ne voit que le trafic de sa machine (ou d'un port miroir). Si les postes
+passent par un résolveur **Unbound**, son journal couvre tout le réseau. Dans `unbound.conf` :
+
+```yaml
+server:
+    log-queries: yes          # une ligne par requête : client, nom, type
+    use-syslog: no
+    logfile: "/var/log/unbound/unbound.log"
+    log-time-ascii: no        # horodatage Unix (défaut), seul format lu
+```
+
+```bash
+.venv/bin/exfildns sniff --journal /var/log/unbound/unbound.log --base detections.db
+```
+
+`sniff` suit le fichier comme `tail -F` (nouvelles lignes seulement, rotation et troncature
+gérées) et note chaque requête avec le même calcul de features que la capture. Il suffit de
+pouvoir lire le fichier : aucune capacité réseau. Limites : pas de **taille** de message
+(colonne vide), le **poste** est le client vu par le résolveur (un relais ou un NAT masque le
+vrai poste), le **serveur DNS** est noté `résolveur`, Unbound peut remplacer dans le journal
+les caractères inhabituels d'un nom (non ASCII, espaces…) par `?`, ce qui change les features
+`special` et `entropy` de ces noms (base64, hex et base32 ne sont pas touchés), et le journal
+grossit vite sur un réseau chargé (prévoir la rotation).
 
 ## 5. Scénario de démonstration
 
@@ -198,8 +244,9 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
+| `notifier` redémarre en boucle, « Adresse du webhook manquante » | `EXFILDNS_WEBHOOK` vide dans `.env` | la renseigner, puis `docker compose --profile notification up -d` |
 | `sniff` redémarre en boucle | modèle absent ou illisible, interface inconnue | `docker compose logs sniff` donne la cause ; le modèle doit être lisible par tous (`chmod 644`) |
-| Aucune requête dans le dashboard | mauvaise interface | interface de `ip route get 1.1.1.1` |
+| Aucune requête dans le dashboard | mauvaise interface (forcée, ou route par défaut changée depuis le démarrage) | interface de `ip route get 1.1.1.1` ; avec `auto`, `docker compose restart sniff` |
 | « Droits insuffisants pour capturer » | ni root ni `CAP_NET_RAW` | voir section 4 |
 | « Capture impossible : … libpcap » | libpcap absent (hors Docker) | installer `libpcap0.8` / `libpcap` |
 | Heures décalées d'une heure, ou axe de l'activité DNS sans heures | conteneur en UTC, fuseau différent de celui du navigateur | `TZ` dans `.env` |

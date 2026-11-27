@@ -2,32 +2,37 @@
 
 Lancement : `exfildns dashboard` (ou `streamlit run src/exfildns/dashboard.py`).
 La base à lire est donnée par la variable d'environnement `EXFILDNS_BASE`, le modèle utilisé
-pour analyser une capture importée par `EXFILDNS_MODELE`, la base des statuts d'alertes (la seule
-où le dashboard écrit) par `EXFILDNS_STATUTS` (par défaut `statuts.db` à côté de la base).
+pour analyser une capture importée par `EXFILDNS_MODELE`, la base des statuts d'alertes et de la
+liste blanche (la seule où le dashboard écrit) par `EXFILDNS_STATUTS` (par défaut `statuts.db` à
+côté de la base). Si `EXFILDNS_MOT_DE_PASSE` est définie, le dashboard demande ce mot de passe
+avant d'afficher quoi que ce soit (docs/decisions.md).
 
 Les fonctions de préparation des données sont pures et testées sans navigateur ; l'interface
 n'est construite que lorsque Streamlit exécute ce fichier (`page()`, tout en bas).
 """
 
+import hmac
 import html
 import io
 import os
 import sqlite3
 import time
 import zlib
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-from exfildns import SEUIL, __version__, detail, statuts, synthese
+from exfildns import SEUIL, __version__, detail, liste_blanche, statuts, synthese
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, domaine_parent, est_autorise
 
 BASE_PAR_DEFAUT = "detections.db"
 STATUTS = "statuts.db"  # nom par défaut de la base des statuts, à côté de la base des détections
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 EXTENSIONS_CAPTURE = ["pcap", "pcapng"]
+PAUSE_ECHEC = 1.0  # secondes d'attente après un mauvais mot de passe
 CAPTURES_EN_CACHE = 5  # analyses gardées en mémoire (une par fichier déposé)
 RAFRAICHISSEMENT = 5  # secondes
 ALERTES_MAX = 20  # cartes affichées dans la file d'alertes
@@ -105,13 +110,18 @@ def derniere_requete(base: str | Path) -> float | None:
     return None if pd.isna(resultat.loc[0, "t"]) else float(resultat.loc[0, "t"])
 
 
+ERREURS_LECTURE_SEULE = ("readonly", "unable to open database file")
+
+
 def _lecture_seule(base: str | Path, sql: str, params: tuple) -> pd.DataFrame:
     """Exécute `sql` sur la base ouverte en lecture seule (voir `lire_requetes`)."""
     uri = f"{Path(base).resolve().as_uri()}?mode=ro"
     try:
         return _lire(uri, sql, params)
     except pd.errors.DatabaseError as erreur:
-        if "readonly" not in str(erreur):
+        # « readonly » : fichiers non modifiables (sniff lancé en root) ; « unable to open » :
+        # système de fichiers en lecture seule (volume Docker :ro), -shm impossible à créer
+        if not any(cause in str(erreur) for cause in ERREURS_LECTURE_SEULE):
             raise
         return _lire(uri + "&immutable=1", sql, params)
 
@@ -548,12 +558,14 @@ def afficher_resultats(
     precedentes: pd.DataFrame | None = None,
     onglet: str = "direct",
     chemin_statuts: str | None = None,
+    liste: Sequence[str] = LISTE_BLANCHE,
 ) -> None:
     """Chiffres clés, timeline, file d'alertes, panneaux « top » et requêtes suspectes récentes.
 
     `precedentes` : requêtes de la période précédente, pour afficher les variations (aucune
     si elle est vide). `onglet` préfixe la clé des widgets (`direct` ou `capture`).
     `chemin_statuts` : base des statuts d'alertes ; sans elle, toutes les alertes sont nouvelles.
+    `liste` : domaines jamais signalés (liste blanche complète).
     """
     if "erreur_statut" in st.session_state:
         st.error(st.session_state.pop("erreur_statut"))
@@ -565,7 +577,7 @@ def afficher_resultats(
             st.warning(f"Statuts d'alertes illisibles ({chemin_statuts}) : {erreur}")
 
     def resume_de(lues: pd.DataFrame) -> pd.DataFrame:
-        return statuts.appliquer(alertes(lues, seuil, min_requetes), connus)
+        return statuts.appliquer(alertes(lues, seuil, min_requetes, liste), connus)
 
     resume = resume_de(requetes)
     suspectes = requetes[requetes["score"] >= seuil]
@@ -587,7 +599,7 @@ def afficher_resultats(
         graphique = graphique_activite(
             activite_dns(requetes, seuil, minutes),
             minutes,
-            instants_alertes(requetes, seuil, min_requetes),
+            instants_alertes(requetes, seuil, min_requetes, liste),
         )
         st.altair_chart(graphique, width="stretch")
     with droite:
@@ -607,7 +619,13 @@ def afficher_resultats(
 
 
 def supervision(
-    st, base: str, seuil: float, min_requetes: int, periode: str, chemin_statuts: str
+    st,
+    base: str,
+    seuil: float,
+    min_requetes: int,
+    periode: str,
+    chemin_statuts: str,
+    liste: Sequence[str] = LISTE_BLANCHE,
 ) -> None:
     """Onglet de supervision en direct : requêtes de la base écrite par `exfildns sniff`."""
     if not Path(base).exists():
@@ -619,7 +637,7 @@ def supervision(
     duree = PERIODES[periode]
     if duree is None:  # toute la base : pas de période précédente
         afficher_resultats(
-            st, lire_requetes(base), seuil, min_requetes, chemin_statuts=chemin_statuts
+            st, lire_requetes(base), seuil, min_requetes, chemin_statuts=chemin_statuts, liste=liste
         )
         return
     # une seule lecture pour la période et la précédente (variations des chiffres clés)
@@ -632,6 +650,7 @@ def supervision(
         min_requetes,
         precedentes=lues[lues["timestamp"] < debut],
         chemin_statuts=chemin_statuts,
+        liste=liste,
     )
 
 
@@ -858,7 +877,9 @@ def vue_requetes(st, base: str, seuil: float, periode: str) -> None:
     afficher_detail(st, vue.iloc[lignes[0]], tableau)
 
 
-def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) -> None:
+def capture_importee(
+    st, chemin_modele: str, seuil: float, min_requetes: int, liste: Sequence[str] = LISTE_BLANCHE
+) -> None:
     """Onglet d'analyse d'un fichier de capture déposé par l'utilisateur."""
     from scapy.error import Scapy_Exception
 
@@ -879,13 +900,94 @@ def capture_importee(st, chemin_modele: str, seuil: float, min_requetes: int) ->
         st.error(f"{fichier.name} n'est pas une capture réseau lisible (pcap ou pcapng).")
         return
     st.caption(f"Capture : {fichier.name}.")
-    afficher_resultats(st, requetes, seuil, min_requetes, onglet="capture")
+    afficher_resultats(st, requetes, seuil, min_requetes, onglet="capture", liste=liste)
+
+
+def panneau_liste_blanche(st, chemin: str) -> list[str]:
+    """Barre latérale : ajout / retrait de domaines jamais signalés ; renvoie la liste complète.
+
+    Les domaines ajoutés sont écrits dans la base des statuts (`chemin`) ; la liste par défaut
+    (CDN) est toujours appliquée et n'est pas modifiable ici.
+    """
+
+    def ajouter() -> None:
+        try:
+            liste_blanche.ajouter(chemin, st.session_state["liste_blanche_nouveau"])
+            st.session_state["liste_blanche_nouveau"] = ""  # vidé seulement si ajouté
+        except ValueError as erreur:
+            st.session_state["erreur_liste_blanche"] = str(erreur)
+        except (sqlite3.Error, OSError) as erreur:
+            st.session_state["erreur_liste_blanche"] = (
+                f"Domaine non enregistré ({chemin}) : {erreur}"
+            )
+
+    def retirer(domaine: str) -> None:
+        try:
+            liste_blanche.retirer(chemin, domaine)
+        except (sqlite3.Error, OSError) as erreur:
+            st.session_state["erreur_liste_blanche"] = f"Domaine non retiré ({chemin}) : {erreur}"
+
+    try:
+        ajoutes = liste_blanche.lire(chemin)
+    except (sqlite3.Error, OSError) as erreur:
+        st.warning(f"Liste blanche illisible ({chemin}) : {erreur}")
+        ajoutes = []
+    with st.expander(f"Liste blanche ({len(LISTE_BLANCHE) + len(ajoutes)} domaines)"):
+        with st.form("liste_blanche", border=False):
+            st.text_input(
+                "Domaine à ne jamais signaler",
+                placeholder="exemple.com",
+                key="liste_blanche_nouveau",
+                help="Le domaine et tous ses sous-domaines ne lèvent plus d'alerte.",
+            )
+            st.form_submit_button("Ajouter", on_click=ajouter)
+        if "erreur_liste_blanche" in st.session_state:
+            st.error(st.session_state.pop("erreur_liste_blanche"))
+        for domaine in ajoutes:
+            nom, bouton = st.columns([3, 1], vertical_alignment="center")
+            nom.text(domaine)
+            bouton.button(
+                "Retirer", key=f"liste_blanche_retirer_{domaine}", on_click=retirer, args=(domaine,)
+            )
+        st.caption("Toujours appliqués (CDN) : " + ", ".join(LISTE_BLANCHE))
+    return [*LISTE_BLANCHE, *ajoutes]
+
+
+def authentifie(st, attendu: str | None) -> bool:
+    """Vrai si l'accès est ouvert ; sinon affiche le formulaire de connexion et renvoie Faux.
+
+    Sans mot de passe configuré (`attendu` vide), le dashboard est ouvert : il n'écoute alors
+    que sur localhost par défaut. La connexion vaut pour la session Streamlit : un rechargement
+    de la page ou un nouvel onglet redemande le mot de passe.
+    """
+    if not attendu or st.session_state.get("authentifie"):
+        return True
+
+    def verifier() -> None:
+        saisi = st.session_state.get("mot_de_passe", "")
+        if hmac.compare_digest(saisi.encode(), attendu.encode()):  # temps constant
+            st.session_state["authentifie"] = True
+        else:
+            time.sleep(PAUSE_ECHEC)  # freine les essais en rafale
+            st.session_state["erreur_connexion"] = True
+        st.session_state["mot_de_passe"] = ""
+
+    st.title("exfildns")
+    with st.form("connexion"):
+        st.text_input("Mot de passe", type="password", key="mot_de_passe")
+        st.form_submit_button("Se connecter", on_click=verifier)
+    if st.session_state.pop("erreur_connexion", False):
+        st.error("Mot de passe incorrect.")
+    return False
 
 
 def page() -> None:
     import streamlit as st
 
     st.set_page_config(page_title="exfildns", layout="wide")
+    mot_de_passe = os.environ.get("EXFILDNS_MOT_DE_PASSE")
+    if not authentifie(st, mot_de_passe):
+        st.stop()
     base = os.environ.get("EXFILDNS_BASE", BASE_PAR_DEFAUT)
     chemin_modele = os.environ.get("EXFILDNS_MODELE", MODELE_PAR_DEFAUT)
     chemin_statuts = os.environ.get("EXFILDNS_STATUTS") or str(Path(base).with_name(STATUTS))
@@ -898,7 +1000,10 @@ def page() -> None:
         )
         periode = st.selectbox("Période", list(PERIODES), index=2, key="periode")
         auto = st.toggle(f"Rafraîchir toutes les {RAFRAICHISSEMENT} s", True, key="auto")
+        liste = panneau_liste_blanche(st, chemin_statuts)
         st.caption(f"Base : `{base}`")
+        if mot_de_passe:
+            st.button("Se déconnecter", on_click=st.session_state.clear, key="deconnexion")
 
     rafraichissement = RAFRAICHISSEMENT if auto else None
 
@@ -913,14 +1018,14 @@ def page() -> None:
 
     @st.fragment(run_every=rafraichissement)
     def vue_directe() -> None:
-        supervision(st, base, seuil, int(min_requetes), periode, chemin_statuts)
+        supervision(st, base, seuil, int(min_requetes), periode, chemin_statuts, liste)
 
     with direct:
         vue_directe()
     with onglet_requetes:
         vue_requetes(st, base, seuil, periode)
     with importee:
-        capture_importee(st, chemin_modele, seuil, int(min_requetes))
+        capture_importee(st, chemin_modele, seuil, int(min_requetes), liste)
 
 
 if __name__ == "__main__":

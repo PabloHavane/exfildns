@@ -1,5 +1,5 @@
 # Déploiement d'exfildns : capture DNS en direct + dashboard de supervision.
-#   cp .env.example .env    # puis choisir l'interface à surveiller
+#   cp .env.example .env    # réglages facultatifs (interface, rétention, mot de passe…)
 #   docker compose up -d --build
 #   -> dashboard sur http://localhost:8501
 # Prérequis : le modèle entraîné dans ./models/exfildns.keras (exfildns train ou le notebook).
@@ -29,11 +29,14 @@ services:
     command:
       - sniff
       - --interface
-      - ${EXFILDNS_INTERFACE:?définir EXFILDNS_INTERFACE dans .env (voir .env.example)}
+      # auto : interface de la route par défaut de l'hôte (réseau hôte)
+      - ${EXFILDNS_INTERFACE:-auto}
       - --base
       - /data/detections.db
       - --modele
       - /models/exfildns.keras
+      - --retention
+      - ${EXFILDNS_RETENTION:-30}
     volumes:
       - ./models:/models:ro
       - detections:/data
@@ -42,6 +45,10 @@ services:
     <<: *commun
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      # Mot de passe demandé à l'ouverture du dashboard ; vide : accès libre
+      EXFILDNS_MOT_DE_PASSE: ${EXFILDNS_MOT_DE_PASSE:-}
     command:
       - dashboard
       - --base
@@ -69,6 +76,29 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # Notification des alertes hautes par webhook, facultative :
+  #   docker compose --profile notification up -d    (EXFILDNS_WEBHOOK dans .env)
+  notifier:
+    <<: *commun
+    profiles: [notification]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      # Variable plutôt qu'argument : l'adresse contient souvent un jeton, absent de `ps`
+      # vide : le service s'arrête avec « Adresse du webhook manquante » (docker compose logs)
+      EXFILDNS_WEBHOOK: ${EXFILDNS_WEBHOOK:-}
+    command:
+      - notifier
+      - --base
+      - /data/detections.db
+      - --statuts
+      - /etat/statuts.db
+    # Lecture seule des deux bases : mêmes alertes, statuts et liste blanche que le dashboard
+    volumes:
+      - detections:/data:ro
+      - statuts:/etat:ro
 
 volumes:
   detections:

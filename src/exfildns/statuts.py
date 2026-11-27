@@ -39,6 +39,9 @@ def lire(chemin: str | Path) -> pd.DataFrame:
     if not Path(chemin).exists():
         return pd.DataFrame(columns=COLONNES)
     with closing(sqlite3.connect(chemin)) as connexion:
+        table = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'statuts_alertes'"
+        if connexion.execute(table).fetchone() is None:  # base créée par la liste blanche
+            return pd.DataFrame(columns=COLONNES)
         return pd.read_sql_query(f"SELECT {', '.join(COLONNES)} FROM statuts_alertes", connexion)
 
 

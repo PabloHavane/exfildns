@@ -91,8 +91,9 @@ que les scripts ne subissent pas les faux positifs isolés.
 
 ## 2026-11-24 — Dashboard en lecture seule, sur localhost par défaut
 Le dashboard ouvre la base SQLite en lecture seule (`mode=ro`) : il ne peut pas altérer les
-détections et tourne sans privilège. Si la capture tourne en root et est arrêtée, il relit la base
-en `immutable` (plus aucun écrivain). Il n'écoute que sur `localhost` par défaut : il affiche les
+détections et tourne sans privilège. Si la capture est arrêtée et que le fichier `-shm` ne peut pas être recréé
+(capture lancée en root, ou volume Docker monté en `:ro`), il relit la base en `immutable` (plus
+aucun écrivain). Il n'écoute que sur `localhost` par défaut : il affiche les
 noms demandés et les adresses des postes, données sensibles à ne pas exposer sans le vouloir.
 
 ## 2026-11-24 — Docker : une image, deux services, privilèges minimaux
@@ -167,3 +168,44 @@ capture, alertes, dashboard, Docker) et v2.1 (interface SOC) ont été développ
 `v2.0.0` annoncerait une version sans l'interface SOC alors qu'elle est livrée ; le numéro suit
 donc le contenu réel. Une version **majeure** (2) car la v1 n'était qu'un modèle hors ligne
 (`train`, `evaluate`, `scan`) : la v2 ajoute la capture en direct, le dashboard et le déploiement.
+
+## 2026-11-26 — Liste blanche modifiable depuis le dashboard (#92)
+
+Les domaines ajoutés par l'analyste vont dans `statuts.db`, table `liste_blanche` : c'est déjà la
+seule base écrite par le dashboard, donc pas de nouveau volume ni de nouvelle option, et
+`detections.db` reste en lecture seule. La liste par défaut (CDN) reste dans le code, toujours
+appliquée et non modifiable depuis l'interface : un retrait par erreur ferait réapparaître des
+faux positifs connus. Les saisies sont validées (forme d'un nom de domaine, au moins deux labels)
+pour qu'un « com » ne blanchisse pas tout un TLD. `scan --liste-blanche` (fichier) est inchangé.
+
+## 2026-11-26 — Notification des alertes hautes par webhook (#91)
+
+**Webhook HTTP générique** (POST JSON, champ `text`) : accepté tel quel par Slack, Mattermost,
+Rocket.Chat, ntfy…, sans dépendance (`urllib`). Un **service à part** (`exfildns notifier`), sans
+privilège, relit `detections.db` et `statuts.db` en lecture seule : il voit exactement les
+alertes du dashboard (liste blanche, statuts, sévérité) et la capture, qui a `NET_RAW`, reste
+inchangée. **Anti-répétition** : une notification par alerte, mémorisée en mémoire ; l'alerte
+est oubliée quand elle sort de la fenêtre d'une heure ou n'est plus ouverte, et un redémarrage
+peut renvoyer les alertes en cours (assumé : rien de plus à stocker). Le domaine, venu du
+réseau, est réduit à `[A-Za-z0-9._:-]` dans le message. Adresse passée par variable
+d'environnement (elle contient souvent un jeton) et limitée à http/https.
+
+## 2026-11-26 — Mot de passe vérifié par le dashboard (#93)
+
+Le dashboard demande le mot de passe de `EXFILDNS_MOT_DE_PASSE` avant d'afficher quoi que ce soit
+(comparaison en temps constant, pause d'1 s après un échec). Écarté : l'authentification native
+de Streamlit, qui exige un fournisseur OIDC ; un reverse proxy dans compose, qui ajoute une image
+tierce et ne protège pas le dashboard lancé hors Docker. Sans variable, l'accès reste libre (le
+dashboard n'écoute que sur localhost). Limites assumées : un seul mot de passe partagé (à choisir long : la pause ne freine qu'une
+session, pas des essais en parallèle), reconnexion à chaque rechargement de la page, pas
+d'auteur des changements de statut, et pas de chiffrement : hors de localhost, un proxy HTTPS
+devant le dashboard reste nécessaire.
+
+## 2026-11-26 — Journal d'Unbound comme seconde source de `sniff` (#94)
+
+**Unbound** (`log-queries`) plutôt que BIND ou Pi-hole : résolveur récursif répandu, une ligne
+par requête et un **horodatage Unix**, alors que dnsmasq (Pi-hole) écrit une date syslog sans
+année. Chaque ligne devient le même tuple qu'un paquet décodé (`pcap.requete_dns`) : notation,
+base, alertes et dashboard sont inchangés (`noter` reçoit le décodeur). Option
+`sniff --journal`, exclusive de `-i`, plutôt qu'une nouvelle commande. Pas de taille de message
+dans le journal : la colonne reste vide, comme pour une base antérieure.

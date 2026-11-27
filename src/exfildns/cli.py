@@ -8,11 +8,12 @@ from pathlib import Path
 
 from scapy.error import Scapy_Exception
 
-from exfildns import __version__, dashboard
+from exfildns import __version__, dashboard, notification
 from exfildns.alertes import LISTE_BLANCHE, MIN_REQUETES, alertes, lire_liste_blanche
 from exfildns.dataset import load_dataset
 from exfildns.evaluation import SEUIL, evaluer
 from exfildns.features import FEATURES, features_dataframe
+from exfildns.journal import lots_journal, requete_journal
 from exfildns.model import (
     CAPTURES_TEST,
     charger,
@@ -21,8 +22,8 @@ from exfildns.model import (
     sauvegarder,
     split_par_capture,
 )
-from exfildns.pcap import read_dns_queries
-from exfildns.sniff import lots_reseau, ouvrir_base, surveiller
+from exfildns.pcap import read_dns_queries, requete_dns
+from exfildns.sniff import choisir_interface, lots_reseau, ouvrir_base, surveiller
 
 MODELE_PAR_DEFAUT = "models/exfildns.keras"
 BASE_PAR_DEFAUT = "detections.db"
@@ -106,6 +107,17 @@ def commande_scan(args) -> int:
     return 1 if len(resume) else 0
 
 
+def positif(texte: str) -> float:
+    """Valide une durée (--retention, --fenetre, --intervalle) : nombre strictement positif."""
+    try:
+        jours = float(texte)
+    except ValueError:
+        jours = 0.0
+    if not jours > 0:  # rejette aussi NaN
+        raise argparse.ArgumentTypeError(f"nombre positif attendu : {texte!r}")
+    return jours
+
+
 def commande_sniff(args) -> int:
     if not Path(args.modele).exists():
         print(
@@ -113,8 +125,16 @@ def commande_sniff(args) -> int:
         )
         return 2
     modele = charger(args.modele)
+    if args.journal:  # journal du résolveur : aucun droit réseau nécessaire
+        try:
+            lots = lots_journal(args.journal)
+        except OSError as erreur:  # fichier absent ou illisible
+            print(f"Journal illisible : {erreur}", file=sys.stderr)
+            return 2
+        return _surveiller(args, modele, lots, requete_journal, f"le journal {args.journal}")
     try:
-        lots = lots_reseau(args.interface)
+        interface = choisir_interface(args.interface)
+        lots = lots_reseau(interface)
     except PermissionError:
         print(
             "Droits insuffisants pour capturer : lancer en root ou donner la capacité "
@@ -125,14 +145,20 @@ def commande_sniff(args) -> int:
     except (ValueError, Scapy_Exception) as erreur:  # interface inconnue, libpcap absent
         print(f"Capture impossible : {erreur}", file=sys.stderr)
         return 2
+    return _surveiller(args, modele, lots, requete_dns, interface)
+
+
+def _surveiller(args, modele, lots, decoder, source: str) -> int:
+    """Partie commune de `sniff` (réseau ou journal) : note et enregistre jusqu'à Ctrl+C."""
     # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
     signal.signal(signal.SIGTERM, signal.default_int_handler)
-    interface = args.interface or "l'interface par défaut"
-    print(f"Capture DNS sur {interface}, requêtes enregistrées dans {args.base}.")
+    print(f"Capture DNS sur {source}, requêtes enregistrées dans {args.base}.")
     print(f"Requêtes suspectes (seuil {args.seuil}) ; Ctrl+C pour arrêter.", flush=True)
     connexion = ouvrir_base(args.base)
     try:
-        analysees, suspectes = surveiller(lots, modele, connexion, args.seuil)
+        analysees, suspectes = surveiller(
+            lots, modele, connexion, args.seuil, retention_jours=args.retention, decoder=decoder
+        )
     finally:
         connexion.close()
     print(f"\nCapture arrêtée : {analysees} requêtes analysées, {suspectes} suspectes.")
@@ -165,6 +191,40 @@ def commande_dashboard(args) -> int:
     sys.stdout.flush()
     os.execvpe(commande[0], commande, env)
     return 0  # jamais atteint (sauf quand exec est remplacé dans les tests)
+
+
+def url_webhook(texte: str) -> str:
+    """Valide l'adresse du webhook : http ou https uniquement (pas de file:// ni autre schéma)."""
+    if not texte.startswith(("http://", "https://")):
+        raise argparse.ArgumentTypeError("adresse http:// ou https:// attendue pour le webhook")
+    return texte
+
+
+def commande_notifier(args) -> int:
+    if not args.webhook:
+        print(
+            "Adresse du webhook manquante : --webhook ou variable EXFILDNS_WEBHOOK.",
+            file=sys.stderr,
+        )
+        return 2
+    chemin_statuts = args.statuts or str(Path(args.base).with_name("statuts.db"))
+    # `docker stop` envoie SIGTERM : on l'interprète comme Ctrl+C pour s'arrêter proprement
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    print(
+        f"Notification des alertes hautes de {args.base} toutes les {args.intervalle:g} s ;"
+        " Ctrl+C pour arrêter.",
+        flush=True,
+    )
+    notification.surveiller(
+        args.base,
+        chemin_statuts,
+        args.webhook,
+        args.seuil,
+        args.min_requetes,
+        args.fenetre * 60,
+        args.intervalle,
+    )
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -217,13 +277,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     sniff = commandes.add_parser(
         "sniff",
-        help="détecte en direct sur une interface réseau (root ou CAP_NET_RAW)",
+        help="détecte en direct sur une interface réseau (root ou CAP_NET_RAW)"
+        " ou dans le journal d'un résolveur Unbound",
     )
-    sniff.add_argument("-i", "--interface", help="interface à écouter (défaut : celle de scapy)")
+    source = sniff.add_mutually_exclusive_group()
+    source.add_argument(
+        "-i",
+        "--interface",
+        help="interface à écouter (défaut ou « auto » : celle de la route par défaut)",
+    )
+    source.add_argument(
+        "--journal",
+        metavar="FICHIER",
+        help="suit le journal d'un résolveur Unbound (log-queries) au lieu du réseau",
+    )
     sniff.add_argument("-m", "--modele", default=MODELE_PAR_DEFAUT, help="fichier .keras")
     sniff.add_argument("--seuil", type=float, default=SEUIL, help="seuil d'affichage")
     sniff.add_argument(
         "--base", default=BASE_PAR_DEFAUT, help="base SQLite où enregistrer les requêtes"
+    )
+    sniff.add_argument(
+        "--retention",
+        type=positif,
+        metavar="JOURS",
+        help="supprime les requêtes plus anciennes que JOURS jours (défaut : tout garder)",
     )
     sniff.set_defaults(fonction=commande_sniff)
 
@@ -242,6 +319,40 @@ def build_parser() -> argparse.ArgumentParser:
         "--adresse", default="localhost", help="adresse d'écoute (0.0.0.0 : tout le réseau)"
     )
     tableau.set_defaults(fonction=commande_dashboard)
+
+    notifier = commandes.add_parser(
+        "notifier", help="envoie les alertes de sévérité haute à un webhook HTTP"
+    )
+    notifier.add_argument("--base", default=BASE_PAR_DEFAUT, help="base SQLite écrite par sniff")
+    notifier.add_argument(
+        "--statuts",
+        help="base du dashboard : statuts et liste blanche (défaut : statuts.db à côté de --base)",
+    )
+    notifier.add_argument(
+        "--webhook",
+        type=url_webhook,
+        default=os.environ.get("EXFILDNS_WEBHOOK") or None,  # vide (compose) : non défini
+        help="adresse où POSTer les alertes en JSON (défaut : variable EXFILDNS_WEBHOOK)",
+    )
+    notifier.add_argument("--seuil", type=float, default=SEUIL, help="seuil de détection")
+    notifier.add_argument(
+        "--min-requetes", type=int, default=MIN_REQUETES, help="requêtes suspectes pour une alerte"
+    )
+    notifier.add_argument(
+        "--fenetre",
+        type=positif,
+        default=60.0,
+        metavar="MINUTES",
+        help="requêtes prises en compte : les MINUTES dernières (défaut : 60)",
+    )
+    notifier.add_argument(
+        "--intervalle",
+        type=positif,
+        default=30.0,
+        metavar="SECONDES",
+        help="délai entre deux vérifications (défaut : 30)",
+    )
+    notifier.set_defaults(fonction=commande_notifier)
     return parser
 
 
