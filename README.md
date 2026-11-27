@@ -248,7 +248,7 @@ Code dans `src/exfildns/` : `pcap.py` (lecture des captures), `features.py` (fea
 de domaine), `dataset.py` (jeu étiqueté), `model.py` (modèles), `evaluation.py` (métriques et
 explication), `cli.py` (commandes), `sniff.py` (capture en direct vers SQLite), `alertes.py`
 (regroupement par domaine, liste blanche), `statuts.py` (statut des alertes), `liste_blanche.py` (domaines ajoutés depuis le dashboard), `notification.py` (webhook des alertes hautes), `journal.py` (journal du résolveur Unbound), `dashboard.py` (Streamlit), `synthese.py` (chiffres
-clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes : détail, décodage, export).
+clés, file d'alertes, panneaux) et `detail.py` (onglet Requêtes et capture importée : détail, décodage, export).
 Conventions (GitLab Flow, commits, branches) : [CLAUDE.md](CLAUDE.md).
 
 ## Licence

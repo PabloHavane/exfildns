@@ -744,7 +744,7 @@ def afficher_detail(st, ligne: pd.Series, tableau: pd.DataFrame, prefixe: str = 
         )
         st.caption(
             f"Moyenne sur les {len(benignes)} requêtes jugées bénignes par le modèle "
-            "sur la période (pas une vérité terrain)."
+            "sur la période ou dans la capture (pas une vérité terrain)."
         )
     with droite:
         suite = detail.sequence(tableau, ligne)
@@ -924,7 +924,9 @@ def capture_importee(
     detaille = st.cache_data(
         detail.tableau_detaille, show_spinner=False, max_entries=CAPTURES_EN_CACHE
     )
-    tableau = detaille(requetes.assign(id=range(1, len(requetes) + 1)), seuil)
+    # seuil fixe dans le cache : bouger le curseur ne recalcule pas les features
+    tableau = detaille(requetes.assign(id=range(1, len(requetes) + 1)), SEUIL)
+    tableau = tableau.assign(verdict=detail.verdicts(tableau["score"], seuil))
     explorer_requetes(st, tableau, seuil, zlib.crc32(fichier.getvalue()), prefixe="capture_")
 
 
