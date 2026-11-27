@@ -1053,12 +1053,22 @@ def page() -> None:
     def vue_directe() -> None:
         supervision(st, base, seuil, int(min_requetes), periode, chemin_statuts, liste)
 
+    # un fragment par onglet : un clic dans le tableau (sélection, filtre) ne relance que son
+    # onglet, pas la supervision qui relit toute la période (#114)
+    @st.fragment
+    def vue_tableau() -> None:
+        vue_requetes(st, base, seuil, periode)
+
+    @st.fragment
+    def vue_capture() -> None:
+        capture_importee(st, chemin_modele, seuil, int(min_requetes), liste)
+
     with direct:
         vue_directe()
     with onglet_requetes:
-        vue_requetes(st, base, seuil, periode)
+        vue_tableau()
     with importee:
-        capture_importee(st, chemin_modele, seuil, int(min_requetes), liste)
+        vue_capture()
 
 
 if __name__ == "__main__":
