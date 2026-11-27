@@ -209,3 +209,9 @@ année. Chaque ligne devient le même tuple qu'un paquet décodé (`pcap.requete
 base, alertes et dashboard sont inchangés (`noter` reçoit le décodeur). Option
 `sniff --journal`, exclusive de `-i`, plutôt qu'une nouvelle commande. Pas de taille de message
 dans le journal : la colonne reste vide, comme pour une base antérieure.
+
+## 2026-11-27 — Rétention par défaut de 3 jours dans le déploiement Docker
+
+`EXFILDNS_RETENTION` passe de 30 à 3 jours : le capteur enregistre chaque requête DNS et la
+supervision relit toute la période affichée ; une base plus petite reste rapide sur une machine
+de démonstration. Réglable dans `.env`.

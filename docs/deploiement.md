@@ -46,9 +46,9 @@ réseau, et le dashboard (exposé à l'utilisateur) n'en a aucun.
 ## 2. Prérequis
 
 - Une machine **Linux** (la capture utilise les sockets `AF_PACKET` du noyau).
-- Le **modèle entraîné** `models/exfildns.keras`. Il se produit une fois, avec le dataset
-  (README, section « Données ») : `uv run exfildns train`, ou en exécutant le notebook.
-  Il n'est pas versionné ; on peut aussi le copier depuis une autre machine.
+- Le **modèle entraîné** `models/exfildns.keras` (non versionné). S'il manque, le produire une
+  fois avec le dataset ([README, section « Données »](../README.md#données-seulement-pour-réentraîner-le-modèle)) :
+  `uv run exfildns train`, ou exécuter le notebook.
 - **Avec Docker** : Docker Engine ≥ 24 et le plugin Compose.
 - **Sans Docker** : [uv](https://docs.astral.sh/uv/) (Python 3.12 est installé par uv), et
   `libpcap` (paquet `libpcap0.8` sous Debian/Ubuntu, `libpcap` sous Fedora).
@@ -72,8 +72,7 @@ rien : c'est le premier point à vérifier si aucune requête n'apparaît.
 
 ```bash
 git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
-cp /chemin/vers/exfildns.keras models/          # si le modèle vient d'ailleurs
-cp .env.example .env                            # réglages facultatifs
+cp .env.example .env                            # facultatif : réglages ci-dessous
 docker compose up -d --build                    # premier build : ~0,7 Go à télécharger
 ```
 
@@ -94,7 +93,7 @@ Variables de `.env` :
 | Variable | Rôle | Défaut |
 |---|---|---|
 | `EXFILDNS_INTERFACE` | Interface à surveiller ; `auto` : celle de la route par défaut | `auto` |
-| `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `30` |
+| `EXFILDNS_RETENTION` | Jours de conservation des requêtes dans `detections.db` (option `--retention` de `sniff`) | `3` |
 | `TZ` | Fuseau des heures affichées (le conteneur est en UTC sinon) | `Europe/Paris` |
 | `EXFILDNS_PORT` | Port local du dashboard | `8501` |
 | `EXFILDNS_MOT_DE_PASSE` | Mot de passe demandé à l'ouverture du dashboard (vide : accès libre) | — |
@@ -139,7 +138,7 @@ demandés et les adresses des postes. Pour y accéder à distance, passer par un
 ## 4. Déploiement sans Docker
 
 ```bash
-git clone https://github.com/PabloHavane/exfildns.git && cd exfildns
+cd exfildns
 uv sync
 # capture (terminal 1) : root ou CAP_NET_RAW
 sudo .venv/bin/exfildns sniff -i eth0 --base detections.db
