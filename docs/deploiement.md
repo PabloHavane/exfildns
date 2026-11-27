@@ -264,6 +264,10 @@ Le même résultat s'obtient en ligne de commande avec `uv run exfildns scan <fi
   alertes limitent les faux positifs.
 - **Analyse requête par requête** : le volume et le rythme des requêtes ne servent qu'à
   regrouper les alertes, pas à détecter (pas de features *stateful*).
+- **Volume affiché** : la supervision relit et recalcule toute la période à chaque
+  rafraîchissement (environ 1 s pour 100 000 requêtes, #112), ce qui garde les chiffres exacts.
+  Le mini-labo produit des dizaines de requêtes par seconde : choisir une période courte, ou
+  repartir d'une base vide avec `docker compose -f compose.labo.yaml down -v`.
 - **DNS chiffré** (DNS over HTTPS / TLS) : invisible pour la capture, qui ne voit que le DNS
   en clair sur le port 53.
 - **Une seule machine** : la capture voit le trafic de la machine qui l'héberge (ou d'un port
