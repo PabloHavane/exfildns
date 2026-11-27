@@ -1109,6 +1109,30 @@ def test_graphique_qtypes():
     assert spec["encoding"]["y"]["sort"] == "-x"
 
 
+def test_app_chaque_onglet_dans_un_fragment(base_demo, monkeypatch):
+    """Un clic dans un onglet ne relance que lui (#114) : chaque onglet est un fragment.
+
+    AppTest relance toujours toute la page ; on vérifie donc la structure : les fonctions
+    qui rendent le bandeau et les trois onglets passent par `st.fragment`.
+    """
+    import streamlit
+
+    vrai_fragment = streamlit.fragment
+    fragments = []
+
+    def espion(func=None, **options):
+        if func is None:  # forme @st.fragment(run_every=...)
+            return lambda f: espion(f, **options)
+        fragments.append(func.__name__)
+        return vrai_fragment(func, **options)
+
+    monkeypatch.setattr(streamlit, "fragment", espion)
+    at = app(base_demo, monkeypatch).run()
+
+    assert not at.exception
+    assert set(fragments) == {"etat", "vue_directe", "vue_tableau", "vue_capture"}
+
+
 def test_app_supervision_et_capture_en_meme_temps(base_demo, tmp_path, modele, monkeypatch):
     """Les deux onglets affichent des panneaux : leurs widgets ne doivent pas partager de clé."""
     contenu = octets_pcap(
