@@ -163,8 +163,10 @@ sélectionnée. La sévérité d'une alerte
 (haute, moyenne, basse) aide au tri sans changer quelles alertes sont levées.
 
 L'onglet **Analyser une capture** accepte un fichier `.pcap` / `.pcapng` et l'analyse comme
-`exfildns scan`, avec les vues de la supervision (sans variations ni onglet Requêtes ; utile
-sans accès au réseau, ou pour rejouer une capture).
+`exfildns scan`, avec les vues de la supervision (sans variations ni statut d'alerte) suivies
+du tableau de **toutes** ses requêtes, bénignes comprises, avec les mêmes filtres, détail et
+exports que l'onglet Requêtes (identifiant d'une requête : sa position dans la capture). Utile
+sans accès au réseau, ou pour rejouer une capture.
 Le modèle est celui de `-m` (relancer le dashboard après un réentraînement : les analyses sont
 mises en cache) ; les fichiers déposés sont limités à 100 Mo.
 
