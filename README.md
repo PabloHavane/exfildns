@@ -159,7 +159,8 @@ Ouvre <http://localhost:8501>, une vue pensée pour un analyste SOC :
 Seuil, nombre de requêtes pour une alerte et période se règlent dans la barre latérale ; la
 supervision se rafraîchit toutes les 5 secondes (interrupteur), l'onglet Requêtes seulement
 sur le bouton « Actualiser » ou un changement de période, pour ne pas perdre la ligne
-sélectionnée. La sévérité d'une alerte
+sélectionnée. Chaque onglet se recalcule seul : un clic dans un tableau ne relance pas la
+supervision. La sévérité d'une alerte
 (haute, moyenne, basse) aide au tri sans changer quelles alertes sont levées.
 
 L'onglet **Analyser une capture** accepte un fichier `.pcap` / `.pcapng` et l'analyse comme
